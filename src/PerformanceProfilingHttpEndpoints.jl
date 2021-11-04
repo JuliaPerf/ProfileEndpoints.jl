@@ -97,4 +97,11 @@ function _server_handler(req::HTTP.Request)
     return HTTP.Response(404)
 end
 
+# Precompile the endpoints as much as possible, so that your /profile attempt doesn't end
+# up profiling compilation!
+function __init__()
+    precompile(serve_profiling_server, ()) || error("precompilation of package functions is not supposed to fail")
+    precompile(profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
+end
+
 end # module PerformanceProfilingHttpEndpoints
