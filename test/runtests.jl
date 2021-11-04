@@ -8,7 +8,7 @@ import InteractiveUtils
 import HTTP
 import Profile
 
-const port = 23423
+const port = 13423
 const t = @async PerformanceProfilingHttpEndpoints.serve_profiling_server(;port=port)
 const url = "http://127.0.0.1:$port"
 
