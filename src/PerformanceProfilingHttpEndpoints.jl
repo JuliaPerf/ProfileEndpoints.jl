@@ -1,4 +1,4 @@
-module ServerIntrospectionEndpoints
+module PerformanceProfilingHttpEndpoints
 
 import HTTP
 import Profile

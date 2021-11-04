@@ -1,6 +1,6 @@
-name = "ServerIntrospectionEndpoints"
+name = "PerformanceProfilingHttpEndpoints"
 uuid = "773a18e9-432f-47dd-82a7-1a805cf6f851"
-authors = ["Nathan Daly <nhdaly@gmail.com> and contributors"]
+authors = ["Nathan Daly <nhdaly@gmail.com>", "Dana Wilson <odioustoad@gmail.com>"]
 version = "0.1.0"
 
 [deps]

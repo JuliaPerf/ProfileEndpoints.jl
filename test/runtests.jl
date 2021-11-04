@@ -1,6 +1,6 @@
-using ServerIntrospectionEndpoints
+using PerformanceProfilingHttpEndpoints
 using Test
 
-@testset "ServerIntrospectionEndpoints.jl" begin
+@testset "PerformanceProfilingHttpEndpoints.jl" begin
     # Write your tests here.
 end

@@ -1,1 +1,1 @@
-# ServerIntrospectionEndpoints
+# PerformanceProfilingHttpEndpoints
