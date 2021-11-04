@@ -73,7 +73,7 @@ function allocations_profile_endpoint(req::HTTP.Request)
 end
 
 function serve_debug_server(port=16825)
-    HTTP.serve("127.0.0.1", 8087) do req
+    HTTP.serve("127.0.0.1", port) do req
         @info "DEBUG REQUEST: $(HTTP.Messages.uri(req))"
 
         uri = HTTP.URI(HTTP.Messages.uri(req))
