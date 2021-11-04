@@ -25,12 +25,12 @@ julia> for _ in 1:100 peakflops() end  # run stuff to profile (locks up the REPL
 
 Then collect a profile:
 ```bash
-$ curl -w "\n%{http_code}\n" '127.0.0.1:16825/profile?duration=2&pprof=true' --output prof1.bin
+$ curl -w "\n%{http_code}\n" '127.0.0.1:16825/profile?duration=2&pprof=true' --output prof1.pb.gz
 ```
 
 And view it in PProf:
 ```julia
 julia> using PProf
 
-julia> PProf.refresh(file="./prof1.bin")
+julia> PProf.refresh(file="./prof1.pb.gz")
 ```
