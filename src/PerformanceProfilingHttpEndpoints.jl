@@ -75,20 +75,26 @@ end
 function serve_profiling_server(;addr="127.0.0.1", port=16825)
     @info "Starting HTTP profiling server on port $port"
     HTTP.serve(addr, port) do req
-        @info "DEBUG REQUEST: $(HTTP.Messages.uri(req))"
-
-        uri = HTTP.URI(HTTP.Messages.uri(req))
-        segments = HTTP.URIs.splitpath(uri)
-        @assert length(segments) >= 1
-        path = segments[1]
-        @info "PATH: $path"
-
-        if (path == "profile")
-            return profile_endpoint(req)
-        end
-
-        return HTTP.Response(404)
+        # Invoke latest for easier development with Revise.jl :)
+        Base.invokelatest(_server_handler, req)
     end
 end
 
+function _server_handler(req::HTTP.Request)
+    @info "DEBUG REQUEST: $(HTTP.Messages.uri(req))"
+
+    uri = HTTP.URI(HTTP.Messages.uri(req))
+    segments = HTTP.URIs.splitpath(uri)
+    @assert length(segments) >= 1
+    path = segments[1]
+
+    if (path == "profile")
+        return profile_endpoint(req)
+    end
+
+    @info "Unsupported Path: $path"
+
+    return HTTP.Response(404)
 end
+
+end # module PerformanceProfilingHttpEndpoints
