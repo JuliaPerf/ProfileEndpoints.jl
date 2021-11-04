@@ -72,9 +72,9 @@ function allocations_profile_endpoint(req::HTTP.Request)
     # TODO: implement this once https://github.com/JuliaLang/julia/pull/42768 is merged
 end
 
-function serve_debug_server(port=16825)
+function serve_profiling_server(;addr="127.0.0.1", port=16825)
     @info "Starting HTTP profiling server on port $port"
-    HTTP.serve("127.0.0.1", port) do req
+    HTTP.serve(addr, port) do req
         @info "DEBUG REQUEST: $(HTTP.Messages.uri(req))"
 
         uri = HTTP.URI(HTTP.Messages.uri(req))
