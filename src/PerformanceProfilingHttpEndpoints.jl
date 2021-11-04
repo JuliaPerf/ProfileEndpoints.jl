@@ -73,6 +73,7 @@ function allocations_profile_endpoint(req::HTTP.Request)
 end
 
 function serve_debug_server(port=16825)
+    @info "Starting HTTP profiling server on port $port"
     HTTP.serve("127.0.0.1", port) do req
         @info "DEBUG REQUEST: $(HTTP.Messages.uri(req))"
 
