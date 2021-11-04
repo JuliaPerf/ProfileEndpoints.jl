@@ -69,4 +69,22 @@ function heap_snapshot_endpoint(req::HTTP.Request)
 
 end
 
+function serve_debug_server(port=16825)
+    HTTP.serve("127.0.0.1", 8087) do req
+        @info "DEBUG REQUEST: $(HTTP.Messages.uri(req))"
+
+        uri = HTTP.URI(HTTP.Messages.uri(req))
+        segments = HTTP.URIs.splitpath(uri)
+        @assert length(segments) >= 1
+        path = segments[1]
+        @info "PATH: $path"
+
+        if (path == "profile")
+            return profile_endpoint(req)
+        end
+
+        return HTTP.Response(404)
+    end
+end
+
 end
