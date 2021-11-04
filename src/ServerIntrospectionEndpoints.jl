@@ -66,7 +66,10 @@ function _http_response(binary_data)
 end
 
 function heap_snapshot_endpoint(req::HTTP.Request)
-
+    # TODO: implement this once https://github.com/JuliaLang/julia/pull/42286 is merged
+end
+function allocations_profile_endpoint(req::HTTP.Request)
+    # TODO: implement this once https://github.com/JuliaLang/julia/pull/42768 is merged
 end
 
 function serve_debug_server(port=16825)
