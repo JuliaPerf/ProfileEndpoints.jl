@@ -44,6 +44,8 @@ function profile_endpoint(req::HTTP.Request)
 end
 
 function _do_profile(n, delay, duration, with_pprof)
+    @info "Starting Profiling from PerformanceProfilingHttpEndpoints with configuration:" n delay duration
+    
     Profile.init(n, delay)
 
     Profile.@profile sleep(duration)
