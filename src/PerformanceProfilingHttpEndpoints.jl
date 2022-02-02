@@ -136,8 +136,10 @@ end
 # up profiling compilation!
 function __init__()
     precompile(serve_profiling_server, ()) || error("precompilation of package functions is not supposed to fail")
-    precompile(profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
-    precompile(_do_profile, (Int,Float64,Float64,Bool)) || error("precompilation of package functions is not supposed to fail")
+    precompile(cpu_profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
+    precompile(_do_cpu_profile, (Int,Float64,Float64,Bool)) || error("precompilation of package functions is not supposed to fail")
+    precompile(allocations_profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
+    precompile(_do_alloc_profile, (Float64,Float64,)) || error("precompilation of package functions is not supposed to fail")
 end
 
 end # module PerformanceProfilingHttpEndpoints
