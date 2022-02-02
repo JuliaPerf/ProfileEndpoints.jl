@@ -25,12 +25,13 @@ default_n() = "1e8"
 default_delay() = "0.01"
 default_duration() = "10.0"
 default_pprof() = "true"
+default_alloc_sample_rate() = "0.0001"
 
 function cpu_profile_endpoint(req::HTTP.Request)
     uri = HTTP.URI(HTTP.Messages.uri(req))
     qp = HTTP.queryparams(uri)
     if isempty(qp)
-        @info "interactive HTML input page"
+        @info "TODO: interactive HTML input page"
         return HTTP.Response(400, "Need to provide query params: e.g. duration=")
     end
 
@@ -72,8 +73,23 @@ end
 function heap_snapshot_endpoint(req::HTTP.Request)
     # TODO: implement this once https://github.com/JuliaLang/julia/pull/42286 is merged
 end
+
 function allocations_profile_endpoint(req::HTTP.Request)
-    # TODO: implement this once https://github.com/JuliaLang/julia/pull/42768 is merged
+    if VERSION < v"1.8.0-DEV.1346"
+        return HTTP.Response(501)
+    end
+
+    uri = HTTP.URI(HTTP.Messages.uri(req))
+    qp = HTTP.queryparams(uri)
+    if isempty(qp)
+        @info "TODO: interactive HTML input page"
+        return HTTP.Response(400, "Need to provide query params: e.g. duration=")
+    end
+
+    sample_rate = convert(Int, parse(Float64, get(qp, "sample_rate", default_alloc_sample_rate())))
+    duration = parse(Float64, get(qp, "duration", default_duration()))
+
+    return _do_alloc_profile(duration, sample_rate)
 end
 
 function _do_alloc_profile(duration, sample_rate)
