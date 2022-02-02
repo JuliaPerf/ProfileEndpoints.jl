@@ -26,7 +26,7 @@ default_delay() = "0.01"
 default_duration() = "10.0"
 default_pprof() = "true"
 
-function profile_endpoint(req::HTTP.Request)
+function cpu_profile_endpoint(req::HTTP.Request)
     uri = HTTP.URI(HTTP.Messages.uri(req))
     qp = HTTP.queryparams(uri)
     if isempty(qp)
@@ -40,12 +40,14 @@ function profile_endpoint(req::HTTP.Request)
     duration = parse(Float64, get(qp, "duration", default_duration()))
     with_pprof = parse(Bool, get(qp, "pprof", default_pprof()))
 
-    return _do_profile(n, delay, duration, with_pprof)
+    return _do_cpu_profile(n, delay, duration, with_pprof)
 end
 
-function _do_profile(n, delay, duration, with_pprof)
-    @info "Starting Profiling from PerformanceProfilingHttpEndpoints with configuration:" n delay duration
-    
+function _do_cpu_profile(n, delay, duration, with_pprof)
+    @info "Starting CPU Profiling from PerformanceProfilingHttpEndpoints with configuration:" n delay duration
+
+    Profile.clear()
+
     Profile.init(n, delay)
 
     Profile.@profile sleep(duration)
@@ -74,6 +76,19 @@ function allocations_profile_endpoint(req::HTTP.Request)
     # TODO: implement this once https://github.com/JuliaLang/julia/pull/42768 is merged
 end
 
+function _do_alloc_profile(duration, sample_rate)
+    @info "Starting allocation Profiling from PerformanceProfilingHttpEndpoints with configuration:" duration sample_rate
+
+    Profile.Allocs.clear()
+
+    Profile.Allocs.@profile sample_rate=sample_rate sleep(duration)
+
+    prof_name = tempname()
+    PProf.Allocs.pprof(out=prof_name, web=false)
+    prof_name = "$prof_name.pb.gz"
+    return _http_response(read(prof_name))
+end
+
 function serve_profiling_server(;addr="127.0.0.1", port=16825)
     @info "Starting HTTP profiling server on port $port"
     HTTP.serve(addr, port) do req
@@ -90,8 +105,10 @@ function _server_handler(req::HTTP.Request)
     @assert length(segments) >= 1
     path = segments[1]
 
-    if (path == "profile")
-        return profile_endpoint(req)
+    if path == "profile"
+        return cpu_profile_endpoint(req)
+    elseif path == "alloc_profile"
+        return allocations_profile_endpoint(req)
     end
 
     @info "Unsupported Path: $path"
