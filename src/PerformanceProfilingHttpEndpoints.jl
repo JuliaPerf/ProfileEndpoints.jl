@@ -86,7 +86,7 @@ function allocations_profile_endpoint(req::HTTP.Request)
         return HTTP.Response(400, "Need to provide query params: e.g. duration=")
     end
 
-    sample_rate = convert(Int, parse(Float64, get(qp, "sample_rate", default_alloc_sample_rate())))
+    sample_rate = convert(Float64, parse(Float64, get(qp, "sample_rate", default_alloc_sample_rate())))
     duration = parse(Float64, get(qp, "duration", default_duration()))
 
     return _do_alloc_profile(duration, sample_rate)
@@ -123,7 +123,7 @@ function _server_handler(req::HTTP.Request)
 
     if path == "profile"
         return cpu_profile_endpoint(req)
-    elseif path == "alloc_profile"
+    elseif path == "allocs_profile"
         return allocations_profile_endpoint(req)
     end
 
