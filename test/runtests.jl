@@ -49,15 +49,19 @@ const url = "http://127.0.0.1:$port"
             end
         end
 
-        req = HTTP.request("GET", "$url/allocs_profile?duration=3")
-        @test req.status == 200
-        @test length(req.body) > 0
+        req = HTTP.request("GET", "$url/allocs_profile?duration=3", retry=false, status_exception=false)
+        if VERSION < v"1.8.0-DEV.1346"
+            @test req.status == 501  # not implemented
+        else
+            @test req.status == 200
+            @test length(req.body) > 0
 
-        data = read(IOBuffer(req.body), String)
-        # Test that there's something here
-        # TODO: actually parse the profile
-        @test length(data) > 100
+            data = read(IOBuffer(req.body), String)
+            # Test that there's something here
+            # TODO: actually parse the profile
+            @test length(data) > 100
 
+        end
         @info "Finished tests, waiting for workload to finish."
         done[] = true
         wait(t)  # handle errors

@@ -74,10 +74,15 @@ function heap_snapshot_endpoint(req::HTTP.Request)
     # TODO: implement this once https://github.com/JuliaLang/julia/pull/42286 is merged
 end
 
+@static if VERSION < v"1.8.0-DEV.1346"
+
+function allocations_profile_endpoint(::HTTP.Request)
+    return HTTP.Response(501)
+end
+
+else  # VERSION < 1.8
+
 function allocations_profile_endpoint(req::HTTP.Request)
-    if VERSION < v"1.8.0-DEV.1346"
-        return HTTP.Response(501)
-    end
 
     uri = HTTP.URI(HTTP.Messages.uri(req))
     qp = HTTP.queryparams(uri)
@@ -104,6 +109,9 @@ function _do_alloc_profile(duration, sample_rate)
     prof_name = "$prof_name.pb.gz"
     return _http_response(read(prof_name))
 end
+
+end  # VERSION < 1.8
+
 
 function serve_profiling_server(;addr="127.0.0.1", port=16825)
     @info "Starting HTTP profiling server on port $port"
@@ -139,7 +147,9 @@ function __init__()
     precompile(cpu_profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
     precompile(_do_cpu_profile, (Int,Float64,Float64,Bool)) || error("precompilation of package functions is not supposed to fail")
     precompile(allocations_profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
-    precompile(_do_alloc_profile, (Float64,Float64,)) || error("precompilation of package functions is not supposed to fail")
+    if VERSION >= v"1.8.0-DEV.1346"
+        precompile(_do_alloc_profile, (Float64,Float64,)) || error("precompilation of package functions is not supposed to fail")
+    end
 end
 
 end # module PerformanceProfilingHttpEndpoints
