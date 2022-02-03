@@ -28,8 +28,9 @@ const url = "http://127.0.0.1:$port"
     @test length(req.body) > 0
 
     data, lidict = deserialize(IOBuffer(req.body))
-    # Test that the profile contained at least one call to peakflops! :)
-    @test length(Profile.callers("peakflops")) > 0
+    # Test that the profile seems like valid profile data
+    @test data isa Vector{UInt64}
+    @test lidict isa Dict{UInt64, Vector{Base.StackTraces.StackFrame}}
 
     @info "Finished tests, waiting for peakflops workload to finish."
     done[] = true
