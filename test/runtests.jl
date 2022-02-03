@@ -52,6 +52,8 @@ const url = "http://127.0.0.1:$port"
 
         req = HTTP.request("GET", "$url/allocs_profile?duration=3", retry=false, status_exception=false)
         if !(isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs))
+            # We should be tesing the Allocs profiling if we're on julia nightly.
+            @assert VERSION < v"1.8.0-DEV.1346"
             @test req.status == 501  # not implemented
         else
             @test req.status == 200
