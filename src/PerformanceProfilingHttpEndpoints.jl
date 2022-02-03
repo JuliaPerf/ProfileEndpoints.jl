@@ -25,12 +25,13 @@ default_n() = "1e8"
 default_delay() = "0.01"
 default_duration() = "10.0"
 default_pprof() = "true"
+default_alloc_sample_rate() = "0.0001"
 
-function profile_endpoint(req::HTTP.Request)
+function cpu_profile_endpoint(req::HTTP.Request)
     uri = HTTP.URI(HTTP.Messages.uri(req))
     qp = HTTP.queryparams(uri)
     if isempty(qp)
-        @info "interactive HTML input page"
+        @info "TODO: interactive HTML input page"
         return HTTP.Response(400, "Need to provide query params: e.g. duration=")
     end
 
@@ -40,12 +41,14 @@ function profile_endpoint(req::HTTP.Request)
     duration = parse(Float64, get(qp, "duration", default_duration()))
     with_pprof = parse(Bool, get(qp, "pprof", default_pprof()))
 
-    return _do_profile(n, delay, duration, with_pprof)
+    return _do_cpu_profile(n, delay, duration, with_pprof)
 end
 
-function _do_profile(n, delay, duration, with_pprof)
-    @info "Starting Profiling from PerformanceProfilingHttpEndpoints with configuration:" n delay duration
-    
+function _do_cpu_profile(n, delay, duration, with_pprof)
+    @info "Starting CPU Profiling from PerformanceProfilingHttpEndpoints with configuration:" n delay duration
+
+    Profile.clear()
+
     Profile.init(n, delay)
 
     Profile.@profile sleep(duration)
@@ -70,9 +73,45 @@ end
 function heap_snapshot_endpoint(req::HTTP.Request)
     # TODO: implement this once https://github.com/JuliaLang/julia/pull/42286 is merged
 end
-function allocations_profile_endpoint(req::HTTP.Request)
-    # TODO: implement this once https://github.com/JuliaLang/julia/pull/42768 is merged
+
+@static if !(isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs))
+
+function allocations_profile_endpoint(::HTTP.Request)
+    return HTTP.Response(501, "You must use a build of Julia (1.8+) and PProf that support Allocations profiling.")
 end
+
+else
+
+function allocations_profile_endpoint(req::HTTP.Request)
+
+    uri = HTTP.URI(HTTP.Messages.uri(req))
+    qp = HTTP.queryparams(uri)
+    if isempty(qp)
+        @info "TODO: interactive HTML input page"
+        return HTTP.Response(400, "Need to provide query params: e.g. duration=")
+    end
+
+    sample_rate = convert(Float64, parse(Float64, get(qp, "sample_rate", default_alloc_sample_rate())))
+    duration = parse(Float64, get(qp, "duration", default_duration()))
+
+    return _do_alloc_profile(duration, sample_rate)
+end
+
+function _do_alloc_profile(duration, sample_rate)
+    @info "Starting allocation Profiling from PerformanceProfilingHttpEndpoints with configuration:" duration sample_rate
+
+    Profile.Allocs.clear()
+
+    Profile.Allocs.@profile sample_rate=sample_rate sleep(duration)
+
+    prof_name = tempname()
+    PProf.Allocs.pprof(out=prof_name, web=false)
+    prof_name = "$prof_name.pb.gz"
+    return _http_response(read(prof_name))
+end
+
+end  # if isdefined
+
 
 function serve_profiling_server(;addr="127.0.0.1", port=16825)
     @info "Starting HTTP profiling server on port $port"
@@ -90,8 +129,10 @@ function _server_handler(req::HTTP.Request)
     @assert length(segments) >= 1
     path = segments[1]
 
-    if (path == "profile")
-        return profile_endpoint(req)
+    if path == "profile"
+        return cpu_profile_endpoint(req)
+    elseif path == "allocs_profile"
+        return allocations_profile_endpoint(req)
     end
 
     @info "Unsupported Path: $path"
@@ -103,8 +144,12 @@ end
 # up profiling compilation!
 function __init__()
     precompile(serve_profiling_server, ()) || error("precompilation of package functions is not supposed to fail")
-    precompile(profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
-    precompile(_do_profile, (Int,Float64,Float64,Bool)) || error("precompilation of package functions is not supposed to fail")
+    precompile(cpu_profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
+    precompile(_do_cpu_profile, (Int,Float64,Float64,Bool)) || error("precompilation of package functions is not supposed to fail")
+    precompile(allocations_profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
+    if isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs)
+        precompile(_do_alloc_profile, (Float64,Float64,)) || error("precompilation of package functions is not supposed to fail")
+    end
 end
 
 end # module PerformanceProfilingHttpEndpoints
