@@ -75,7 +75,7 @@ function heap_snapshot_endpoint(req::HTTP.Request)
 end
 
 function allocations_profile_endpoint(req::HTTP.Request)
-    if VERSION < v"1.8.0-DEV.1346"
+    if VERSION < v"1.6.5"
         return HTTP.Response(501)
     end
 
