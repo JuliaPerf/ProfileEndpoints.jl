@@ -74,13 +74,13 @@ function heap_snapshot_endpoint(req::HTTP.Request)
     # TODO: implement this once https://github.com/JuliaLang/julia/pull/42286 is merged
 end
 
-@static if VERSION < v"1.8.0-DEV.1346"
+@static if !(isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs))
 
 function allocations_profile_endpoint(::HTTP.Request)
-    return HTTP.Response(501)
+    return HTTP.Response(501, "You must use a build of Julia (1.8+) and PProf that support Allocations profiling.")
 end
 
-else  # VERSION < 1.8
+else
 
 function allocations_profile_endpoint(req::HTTP.Request)
 
@@ -110,7 +110,7 @@ function _do_alloc_profile(duration, sample_rate)
     return _http_response(read(prof_name))
 end
 
-end  # VERSION < 1.8
+end  # if isdefined
 
 
 function serve_profiling_server(;addr="127.0.0.1", port=16825)
@@ -147,7 +147,7 @@ function __init__()
     precompile(cpu_profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
     precompile(_do_cpu_profile, (Int,Float64,Float64,Bool)) || error("precompilation of package functions is not supposed to fail")
     precompile(allocations_profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
-    if VERSION >= v"1.8.0-DEV.1346"
+    if !(isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs))
         precompile(_do_alloc_profile, (Float64,Float64,)) || error("precompilation of package functions is not supposed to fail")
     end
 end

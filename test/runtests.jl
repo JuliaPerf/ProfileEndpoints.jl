@@ -7,6 +7,7 @@ using Serialization
 import InteractiveUtils
 import HTTP
 import Profile
+import PProf
 
 const port = 13423
 const t = @async PerformanceProfilingHttpEndpoints.serve_profiling_server(;port=port)
@@ -50,7 +51,7 @@ const url = "http://127.0.0.1:$port"
         end
 
         req = HTTP.request("GET", "$url/allocs_profile?duration=3", retry=false, status_exception=false)
-        if VERSION < v"1.8.0-DEV.1346"
+        if !(isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs))
             @test req.status == 501  # not implemented
         else
             @test req.status == 200
