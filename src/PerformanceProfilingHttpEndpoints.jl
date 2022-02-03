@@ -147,7 +147,7 @@ function __init__()
     precompile(cpu_profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
     precompile(_do_cpu_profile, (Int,Float64,Float64,Bool)) || error("precompilation of package functions is not supposed to fail")
     precompile(allocations_profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
-    if !(isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs))
+    if isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs)
         precompile(_do_alloc_profile, (Float64,Float64,)) || error("precompilation of package functions is not supposed to fail")
     end
 end
