@@ -7,6 +7,8 @@ julia process to interrogate its performance characteristics.
 Currently provides:
 - `/profile` endpoint, with default query params:
     - `/profile?n=1e8&delay=0.01&duration=10&pprof=true`
+- `/allocs_profile` endpoint, with default query params:
+    - `/allocs_profile?sample_rate=0.0001&duration=10`
 
 
 ## Example
