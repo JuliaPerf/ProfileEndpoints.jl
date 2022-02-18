@@ -27,12 +27,23 @@ default_duration() = "10.0"
 default_pprof() = "true"
 default_alloc_sample_rate() = "0.0001"
 
+cpu_profile_error_message() = """Need to provide query params:
+    - duration=$(default_duration())
+    - delay=$(default_delay())
+    - n=$(default_n())
+    - pprof=$(default_pprof())
+"""
+allocs_profile_error_message() = """Need to provide query params:
+    - duration=$(default_duration())
+    - sample_rate=$(default_alloc_sample_rate())
+"""
+
 function cpu_profile_endpoint(req::HTTP.Request)
     uri = HTTP.URI(HTTP.Messages.uri(req))
     qp = HTTP.queryparams(uri)
     if isempty(qp)
         @info "TODO: interactive HTML input page"
-        return HTTP.Response(400, "Need to provide query params: e.g. duration=")
+        return HTTP.Response(400, cpu_profile_error_message())
     end
 
     # Run the profile
@@ -88,7 +99,7 @@ function allocations_profile_endpoint(req::HTTP.Request)
     qp = HTTP.queryparams(uri)
     if isempty(qp)
         @info "TODO: interactive HTML input page"
-        return HTTP.Response(400, "Need to provide query params: e.g. duration=")
+        return HTTP.Response(400, allocs_profile_error_message())
     end
 
     sample_rate = convert(Float64, parse(Float64, get(qp, "sample_rate", default_alloc_sample_rate())))

@@ -70,6 +70,28 @@ const url = "http://127.0.0.1:$port"
         done[] = true
         wait(t)  # handle errors
     end
+
+    @testset "error handling" begin
+        let res = HTTP.request("GET", "$url/profile", status_exception=false)
+            @test 400 <= res.status < 500
+            @test res.status != 404
+            # Make sure we describe how to use the endpoint
+            body = String(res.body)
+            @test occursin("duration", body)
+            @test occursin("delay", body)
+        end
+
+        if (isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs))
+            let res = HTTP.request("GET", "$url/allocs_profile", status_exception=false)
+                @test 400 <= res.status < 500
+                @test res.status != 404
+                # Make sure we describe how to use the endpoint
+                body = String(res.body)
+                @test occursin("duration", body)
+                @test occursin("sample_rate", body)
+            end
+        end
+    end
 end
 
 end # module PerformanceProfilingHttpEndpointsTests
