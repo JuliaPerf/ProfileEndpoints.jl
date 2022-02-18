@@ -100,16 +100,21 @@ function _do_cpu_profile(n, delay, duration, with_pprof)
         prof_name = tempname()
         PProf.pprof(out=prof_name, web=false)
         prof_name = "$prof_name.pb.gz"
-        return _http_response(read(prof_name))
+        return _http_response(read(prof_name),
+            "cpu_profile-duration=$duration&delay=$delay&n=$n.pb.gz")
     else
         iobuf = IOBuffer()
         serialize(iobuf, data)
-        return _http_response(take!(iobuf))
+        return _http_response(take!(iobuf),
+            "cpu_profile&duration=$duration&delay=$delay&n=$n.prof.bin")
     end
 end
 
-function _http_response(binary_data)
-    return HTTP.Response(200, ["Content-Type" => "application/octet-stream"], body = binary_data)
+function _http_response(binary_data, filename)
+    return HTTP.Response(200, [
+        "Content-Type" => "application/octet-stream"
+        "Content-Disposition" => "attachment; filename=$(repr(filename))"
+    ], body = binary_data)
 end
 
 function heap_snapshot_endpoint(req::HTTP.Request)
@@ -149,7 +154,8 @@ function _do_alloc_profile(duration, sample_rate)
     prof_name = tempname()
     PProf.Allocs.pprof(out=prof_name, web=false)
     prof_name = "$prof_name.pb.gz"
-    return _http_response(read(prof_name))
+    return _http_response(read(prof_name),
+            "allocs_profile-duration=$duration&sample_rate=$sample_rate.pb.gz")
 end
 
 end  # if isdefined
