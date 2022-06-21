@@ -10,7 +10,7 @@ import Profile
 import PProf
 
 const port = 13423
-const t = @async PerformanceProfilingHttpEndpoints.serve_profiling_server(;port=port)
+const server = PerformanceProfilingHttpEndpoints.serve_profiling_server(;port=port)
 const url = "http://127.0.0.1:$port"
 
 @testset "PerformanceProfilingHttpEndpoints.jl" begin
@@ -26,7 +26,7 @@ const url = "http://127.0.0.1:$port"
             end
         end
 
-        req = HTTP.request("GET", "$url/profile?duration=3&pprof=false")
+        req = HTTP.get("$url/profile?duration=3&pprof=false")
         @test req.status == 200
         @test length(req.body) > 0
 
@@ -51,7 +51,7 @@ const url = "http://127.0.0.1:$port"
             end
         end
 
-        req = HTTP.request("GET", "$url/allocs_profile?duration=3", retry=false, status_exception=false)
+        req = HTTP.get("$url/allocs_profile?duration=3", retry=false, status_exception=false)
         if !(isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs))
             # We should be tesing the Allocs profiling if we're on julia nightly.
             @assert VERSION < v"1.8.0-DEV.1346"
@@ -72,7 +72,7 @@ const url = "http://127.0.0.1:$port"
     end
 
     @testset "error handling" begin
-        let res = HTTP.request("GET", "$url/profile", status_exception=false)
+        let res = HTTP.get("$url/profile", status_exception=false)
             @test 400 <= res.status < 500
             @test res.status != 404
             # Make sure we describe how to use the endpoint
@@ -82,7 +82,7 @@ const url = "http://127.0.0.1:$port"
         end
 
         if (isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs))
-            let res = HTTP.request("GET", "$url/allocs_profile", status_exception=false)
+            let res = HTTP.get("$url/allocs_profile", status_exception=false)
                 @test 400 <= res.status < 500
                 @test res.status != 404
                 # Make sure we describe how to use the endpoint
@@ -93,5 +93,7 @@ const url = "http://127.0.0.1:$port"
         end
     end
 end
+
+close(server)
 
 end # module PerformanceProfilingHttpEndpointsTests

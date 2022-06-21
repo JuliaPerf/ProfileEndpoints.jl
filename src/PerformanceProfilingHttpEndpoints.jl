@@ -70,7 +70,7 @@ allocations by passing sample_rate=1.
 """
 
 function cpu_profile_endpoint(req::HTTP.Request)
-    uri = HTTP.URI(HTTP.Messages.uri(req))
+    uri = HTTP.URI(req.target)
     qp = HTTP.queryparams(uri)
     if isempty(qp)
         @info "TODO: interactive HTML input page"
@@ -131,7 +131,7 @@ else
 
 function allocations_profile_endpoint(req::HTTP.Request)
 
-    uri = HTTP.URI(HTTP.Messages.uri(req))
+    uri = HTTP.URI(req.target)
     qp = HTTP.queryparams(uri)
     if isempty(qp)
         @info "TODO: interactive HTML input page"
@@ -160,32 +160,13 @@ end
 
 end  # if isdefined
 
-
 function serve_profiling_server(;addr="127.0.0.1", port=16825)
     @info "Starting HTTP profiling server on port $port"
-    HTTP.serve(addr, port) do req
-        # Invoke latest for easier development with Revise.jl :)
-        Base.invokelatest(_server_handler, req)
-    end
-end
-
-function _server_handler(req::HTTP.Request)
-    @info "DEBUG REQUEST: $(HTTP.Messages.uri(req))"
-
-    uri = HTTP.URI(HTTP.Messages.uri(req))
-    segments = HTTP.URIs.splitpath(uri)
-    @assert length(segments) >= 1
-    path = segments[1]
-
-    if path == "profile"
-        return cpu_profile_endpoint(req)
-    elseif path == "allocs_profile"
-        return allocations_profile_endpoint(req)
-    end
-
-    @info "Unsupported Path: $path"
-
-    return HTTP.Response(404)
+    router = HTTP.Router()
+    HTTP.register!(router, "/profile", cpu_profile_endpoint)
+    HTTP.register!(router, "/allocs_profile", allocations_profile_endpoint)
+    # HTTP.serve! returns listening/serving server object
+    return HTTP.serve!(router, addr, port)
 end
 
 # Precompile the endpoints as much as possible, so that your /profile attempt doesn't end
