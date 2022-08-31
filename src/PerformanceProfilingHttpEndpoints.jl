@@ -160,13 +160,13 @@ end
 
 end  # if isdefined
 
-function serve_profiling_server(;addr="127.0.0.1", port=16825)
+function serve_profiling_server(;addr="127.0.0.1", port=16825, listenany=false)
     @info "Starting HTTP profiling server on port $port"
     router = HTTP.Router()
     HTTP.register!(router, "/profile", cpu_profile_endpoint)
     HTTP.register!(router, "/allocs_profile", allocations_profile_endpoint)
     # HTTP.serve! returns listening/serving server object
-    return HTTP.serve!(router, addr, port)
+    return HTTP.serve!(router, addr, port; listenany=listenany)
 end
 
 # Precompile the endpoints as much as possible, so that your /profile attempt doesn't end
