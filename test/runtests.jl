@@ -43,7 +43,7 @@ const url = "http://127.0.0.1:$port"
     @testset "Allocation profiling" begin
         done = Threads.Atomic{Bool}(false)
         # Schedule some work that's known to be expensive, to profile it
-        t = @async begin
+        workload() = @async begin
             for _ in 1:200
                 if done[] return end
                 global a = [[] for i in 1:1000]
@@ -51,24 +51,54 @@ const url = "http://127.0.0.1:$port"
             end
         end
 
-        req = HTTP.get("$url/allocs_profile?duration=3", retry=false, status_exception=false)
-        if !(isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs))
-            # We should be tesing the Allocs profiling if we're on julia nightly.
-            @assert VERSION < v"1.8.0-DEV.1346"
-            @test req.status == 501  # not implemented
-        else
-            @test req.status == 200
-            @test length(req.body) > 0
+        @testset "allocs_profile endpoint" begin
+            done[] = false
+            t = workload()
+            req = HTTP.get("$url/allocs_profile?duration=3", retry=false, status_exception=false)
+            if !(isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs))
+                @assert VERSION < v"1.8.0-DEV.1346"
+                @test req.status == 501  # not implemented
+            else
+                @test req.status == 200
+                @test length(req.body) > 0
 
-            data = read(IOBuffer(req.body), String)
-            # Test that there's something here
-            # TODO: actually parse the profile
-            @test length(data) > 100
-
+                data = read(IOBuffer(req.body), String)
+                # Test that there's something here
+                # TODO: actually parse the profile
+                @test length(data) > 100
+            end
+            @info "Finished `allocs_profile` tests, waiting for workload to finish."
+            done[] = true
+            wait(t)  # handle errors
         end
-        @info "Finished tests, waiting for workload to finish."
-        done[] = true
-        wait(t)  # handle errors
+
+        @testset "allocs_profile_start/stop endpoints" begin
+            done[] = false
+            t = workload()
+            req = HTTP.get("$url/allocs_profile_start", retry=false, status_exception=false)
+            if !(isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs))
+                @assert VERSION < v"1.8.0-DEV.1346"
+                @test req.status == 501  # not implemented
+            else
+                @test req.status == 200
+                @test String(req.body) == "Allocation profiling started."
+            end
+
+            req = HTTP.get("$url/allocs_profile_stop", retry=false, status_exception=false)
+            if !(isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs))
+                @assert VERSION < v"1.8.0-DEV.1346"
+                @test req.status == 501  # not implemented
+            else
+                @test req.status == 200
+                data = read(IOBuffer(req.body), String)
+                # Test that there's something here
+                # TODO: actually parse the profile
+                @test length(data) > 100
+            end
+            @info "Finished `allocs_profile_stop` tests, waiting for workload to finish."
+            done[] = true
+            wait(t)  # handle errors
+        end
     end
 
     @testset "error handling" begin

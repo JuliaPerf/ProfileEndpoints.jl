@@ -146,10 +146,6 @@ end
 function allocations_start_endpoint(req::HTTP.Request)
     uri = HTTP.URI(req.target)
     qp = HTTP.queryparams(uri)
-    if isempty(qp)
-        @info "TODO: interactive HTML input page"
-        return HTTP.Response(400, allocs_profile_error_message())
-    end
     sample_rate = convert(Float64, parse(Float64, get(qp, "sample_rate", default_alloc_sample_rate())))
     return _start_alloc_profile(sample_rate)
 end
