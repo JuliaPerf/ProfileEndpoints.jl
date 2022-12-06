@@ -84,6 +84,8 @@ const url = "http://127.0.0.1:$port"
                 @test String(req.body) == "Allocation profiling started."
             end
 
+            sleep(3)  # Allow workload to run a while before we stop profiling.
+
             req = HTTP.get("$url/allocs_profile_stop", retry=false, status_exception=false)
             if !(isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs))
                 @assert VERSION < v"1.8.0-DEV.1346"
