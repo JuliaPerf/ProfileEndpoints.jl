@@ -19,7 +19,7 @@ const url = "http://127.0.0.1:$port"
         done = Threads.Atomic{Bool}(false)
         # Schedule some work that's known to be expensive, to profile it
         workload() = @async begin
-            for _ in 1:200
+            for _ in 1:1000
                 if done[] return end
                 InteractiveUtils.peakflops()
                 yield()  # yield to allow the tests to run
@@ -45,11 +45,11 @@ const url = "http://127.0.0.1:$port"
 
         @testset "profile_start/stop endpoints" begin
             done[] = false
+            t = workload()
             req = HTTP.get("$url/profile_start")
             @test req.status == 200
             @test String(req.body) == "CPU profiling started."
 
-            t = workload()
             sleep(3)  # Allow workload to run a while before we stop profiling.
 
             req = HTTP.get("$url/profile_stop?pprof=false")
