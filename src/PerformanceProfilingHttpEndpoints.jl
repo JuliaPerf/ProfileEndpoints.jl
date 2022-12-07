@@ -21,11 +21,21 @@ using Serialization: serialize
 #
 #----------------------------------------------------------
 
+function _http_response(binary_data, filename)
+    return HTTP.Response(200, [
+        "Content-Type" => "application/octet-stream"
+        "Content-Disposition" => "attachment; filename=$(repr(filename))"
+    ], body = binary_data)
+end
+
+###
+### CPU
+###
+
 default_n() = "1e8"
 default_delay() = "0.01"
 default_duration() = "10.0"
 default_pprof() = "true"
-default_alloc_sample_rate() = "0.0001"
 
 cpu_profile_error_message() = """Need to provide query params:
     - duration=$(default_duration())
@@ -50,6 +60,85 @@ controlled by `n=`. If you assume an average stack depth of 100, and you were ai
 
 The default `n` is 1e8, which should be big enough for most profiles.
 """
+
+function cpu_profile_endpoint(req::HTTP.Request)
+    uri = HTTP.URI(req.target)
+    qp = HTTP.queryparams(uri)
+    if isempty(qp)
+        @info "TODO: interactive HTML input page"
+        return HTTP.Response(400, cpu_profile_error_message())
+    end
+
+    # Run the profile
+    n = convert(Int, parse(Float64, get(qp, "n", default_n())))
+    delay = parse(Float64, get(qp, "delay", default_delay()))
+    duration = parse(Float64, get(qp, "duration", default_duration()))
+    with_pprof = parse(Bool, get(qp, "pprof", default_pprof()))
+    return _do_cpu_profile(n, delay, duration, with_pprof)
+end
+
+function cpu_profile_start_endpoint(req::HTTP.Request)
+    uri = HTTP.URI(req.target)
+    qp = HTTP.queryparams(uri)
+
+    # Run the profile
+    n = convert(Int, parse(Float64, get(qp, "n", default_n())))
+    delay = parse(Float64, get(qp, "delay", default_delay()))
+    return _start_cpu_profile(n, delay)
+end
+
+function cpu_profile_stop_endpoint(req::HTTP.Request)
+    Profile.stop_timer()
+    @info "Stopping CPU Profiling from PerformanceProfilingHttpEndpoints"
+    uri = HTTP.URI(req.target)
+    qp = HTTP.queryparams(uri)
+    with_pprof = parse(Bool, get(qp, "pprof", default_pprof()))
+    filename = "cpu_profile"
+    return _cpu_profile_response(filename; with_pprof)
+end
+
+function _do_cpu_profile(n, delay, duration, with_pprof)
+    @info "Starting CPU Profiling from PerformanceProfilingHttpEndpoints with configuration:" n delay duration
+    Profile.clear()
+    Profile.init(n, delay)
+    Profile.@profile sleep(duration)
+    filename = "cpu_profile-duration=$duration&delay=$delay&n=$n"
+    return _cpu_profile_response(filename; with_pprof)
+end
+
+function _start_cpu_profile(n, delay)
+    @info "Starting CPU Profiling from PerformanceProfilingHttpEndpoints with configuration:" n delay
+    resp = HTTP.Response(200, "CPU profiling started.")
+    Profile.clear()
+    Profile.init(n, delay)
+    Profile.start_timer()
+    return resp
+end
+
+function _cpu_profile_response(filename; with_pprof::Bool)
+    if with_pprof
+        prof_name = tempname()
+        PProf.pprof(out=prof_name, web=false)
+        prof_name = "$prof_name.pb.gz"
+        return _http_response(read(prof_name), "$filename.pb.gz")
+    else
+        iobuf = IOBuffer()
+        data = Profile.retrieve()
+        serialize(iobuf, data)
+        return _http_response(take!(iobuf), "$filename.prof.bin")
+    end
+end
+
+###
+### Allocs
+###
+
+function heap_snapshot_endpoint(req::HTTP.Request)
+    # TODO: implement this once https://github.com/JuliaLang/julia/pull/42286 is merged
+end
+
+default_alloc_sample_rate() = "0.0001"
+
 allocs_profile_error_message() = """Need to provide query params:
     - duration=$(default_duration())
     - sample_rate=$(default_alloc_sample_rate())
@@ -68,58 +157,6 @@ profiling, and thus end up with an inaccurate profile.
 Finally, if you think your program only allocates a small amount, you can capture *all*
 allocations by passing sample_rate=1.
 """
-
-function cpu_profile_endpoint(req::HTTP.Request)
-    uri = HTTP.URI(req.target)
-    qp = HTTP.queryparams(uri)
-    if isempty(qp)
-        @info "TODO: interactive HTML input page"
-        return HTTP.Response(400, cpu_profile_error_message())
-    end
-
-    # Run the profile
-    n = convert(Int, parse(Float64, get(qp, "n", default_n())))
-    delay = parse(Float64, get(qp, "delay", default_delay()))
-    duration = parse(Float64, get(qp, "duration", default_duration()))
-    with_pprof = parse(Bool, get(qp, "pprof", default_pprof()))
-
-    return _do_cpu_profile(n, delay, duration, with_pprof)
-end
-
-function _do_cpu_profile(n, delay, duration, with_pprof)
-    @info "Starting CPU Profiling from PerformanceProfilingHttpEndpoints with configuration:" n delay duration
-
-    Profile.clear()
-
-    Profile.init(n, delay)
-
-    Profile.@profile sleep(duration)
-
-    data = Profile.retrieve()
-    if with_pprof
-        prof_name = tempname()
-        PProf.pprof(out=prof_name, web=false)
-        prof_name = "$prof_name.pb.gz"
-        return _http_response(read(prof_name),
-            "cpu_profile-duration=$duration&delay=$delay&n=$n.pb.gz")
-    else
-        iobuf = IOBuffer()
-        serialize(iobuf, data)
-        return _http_response(take!(iobuf),
-            "cpu_profile&duration=$duration&delay=$delay&n=$n.prof.bin")
-    end
-end
-
-function _http_response(binary_data, filename)
-    return HTTP.Response(200, [
-        "Content-Type" => "application/octet-stream"
-        "Content-Disposition" => "attachment; filename=$(repr(filename))"
-    ], body = binary_data)
-end
-
-function heap_snapshot_endpoint(req::HTTP.Request)
-    # TODO: implement this once https://github.com/JuliaLang/julia/pull/42286 is merged
-end
 
 @static if !(isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs))
 
@@ -170,9 +207,10 @@ end
 
 function _start_alloc_profile(sample_rate)
     @info "Starting allocation Profiling from PerformanceProfilingHttpEndpoints with configuration:" sample_rate
+    resp = HTTP.Response(200, "Allocation profiling started.")
     Profile.Allocs.clear()
     Profile.Allocs.start(; sample_rate)
-    return HTTP.Response(200, "Allocation profiling started.")
+    return resp
 end
 
 function _stop_alloc_profile()
@@ -185,10 +223,16 @@ end
 
 end  # if isdefined
 
+###
+### Server
+###
+
 function serve_profiling_server(;addr="127.0.0.1", port=16825, verbose=false, kw...)
     verbose >= 0 && @info "Starting HTTP profiling server on port $port"
     router = HTTP.Router()
     HTTP.register!(router, "/profile", cpu_profile_endpoint)
+    HTTP.register!(router, "/profile_start", cpu_profile_start_endpoint)
+    HTTP.register!(router, "/profile_stop", cpu_profile_stop_endpoint)
     HTTP.register!(router, "/allocs_profile", allocations_profile_endpoint)
     HTTP.register!(router, "/allocs_profile_start", allocations_start_endpoint)
     HTTP.register!(router, "/allocs_profile_stop", allocations_stop_endpoint)
@@ -200,8 +244,13 @@ end
 # up profiling compilation!
 function __init__()
     precompile(serve_profiling_server, ()) || error("precompilation of package functions is not supposed to fail")
+
     precompile(cpu_profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
+    precompile(cpu_profile_start_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
+    precompile(cpu_profile_stop_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
     precompile(_do_cpu_profile, (Int,Float64,Float64,Bool)) || error("precompilation of package functions is not supposed to fail")
+    precompile(_start_cpu_profile, (Int,Float64,)) || error("precompilation of package functions is not supposed to fail")
+
     precompile(allocations_profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
     precompile(allocations_start_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
     precompile(allocations_stop_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
