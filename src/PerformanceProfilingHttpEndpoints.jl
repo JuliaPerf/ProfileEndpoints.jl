@@ -82,31 +82,62 @@ function cpu_profile_endpoint(req::HTTP.Request)
     delay = parse(Float64, get(qp, "delay", default_delay()))
     duration = parse(Float64, get(qp, "duration", default_duration()))
     with_pprof = parse(Bool, get(qp, "pprof", default_pprof()))
-
     return _do_cpu_profile(n, delay, duration, with_pprof)
+end
+
+function cpu_profile_start_endpoint(req::HTTP.Request)
+    uri = HTTP.URI(req.target)
+    qp = HTTP.queryparams(uri)
+
+    # Run the profile
+    n = convert(Int, parse(Float64, get(qp, "n", default_n())))
+    delay = parse(Float64, get(qp, "delay", default_delay()))
+    return _start_cpu_profile(n, delay)
+end
+
+function cpu_profile_stop_endpoint(req::HTTP.Request)
+    uri = HTTP.URI(req.target)
+    qp = HTTP.queryparams(uri)
+    with_pprof = parse(Bool, get(qp, "pprof", default_pprof()))
+    return _stop_cpu_profile(with_pprof)
 end
 
 function _do_cpu_profile(n, delay, duration, with_pprof)
     @info "Starting CPU Profiling from PerformanceProfilingHttpEndpoints with configuration:" n delay duration
-
     Profile.clear()
-
     Profile.init(n, delay)
-
     Profile.@profile sleep(duration)
-
     data = Profile.retrieve()
+    filename = "cpu_profile-duration=$duration&delay=$delay&n=$n"
+    return _cpu_profile_response(data, filename; with_pprof)
+end
+
+function _start_cpu_profile(n, delay)
+    @info "Starting CPU Profiling from PerformanceProfilingHttpEndpoints with configuration:" n delay
+    Profile.clear()
+    Profile.init(n, delay)
+    Profile.start_timer()
+    return HTTP.Response(200, "CPU profiling started.")
+end
+
+function _stop_cpu_profile(with_pprof)
+    @info "Stopping CPU Profiling from PerformanceProfilingHttpEndpoints"
+    Profile.stop_timer()
+    data = Profile.retrieve()
+    filename = "cpu_profile"
+    return _cpu_profile_response(data, filename; with_pprof)
+end
+
+function _cpu_profile_response(data, filename; with_pprof::Bool)
     if with_pprof
         prof_name = tempname()
         PProf.pprof(out=prof_name, web=false)
         prof_name = "$prof_name.pb.gz"
-        return _http_response(read(prof_name),
-            "cpu_profile-duration=$duration&delay=$delay&n=$n.pb.gz")
+        return _http_response(read(prof_name), "$filename.pb.gz")
     else
         iobuf = IOBuffer()
         serialize(iobuf, data)
-        return _http_response(take!(iobuf),
-            "cpu_profile&duration=$duration&delay=$delay&n=$n.prof.bin")
+        return _http_response(take!(iobuf), "$filename.prof.bin")
     end
 end
 
@@ -185,10 +216,16 @@ end
 
 end  # if isdefined
 
+###
+### Server
+###
+
 function serve_profiling_server(;addr="127.0.0.1", port=16825, verbose=false, kw...)
     verbose >= 0 && @info "Starting HTTP profiling server on port $port"
     router = HTTP.Router()
     HTTP.register!(router, "/profile", cpu_profile_endpoint)
+    HTTP.register!(router, "/profile_start", cpu_profile_start_endpoint)
+    HTTP.register!(router, "/profile_stop", cpu_profile_stop_endpoint)
     HTTP.register!(router, "/allocs_profile", allocations_profile_endpoint)
     HTTP.register!(router, "/allocs_profile_start", allocations_start_endpoint)
     HTTP.register!(router, "/allocs_profile_stop", allocations_stop_endpoint)
@@ -200,8 +237,14 @@ end
 # up profiling compilation!
 function __init__()
     precompile(serve_profiling_server, ()) || error("precompilation of package functions is not supposed to fail")
+
     precompile(cpu_profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
+    precompile(cpu_profile_start_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
+    precompile(cpu_profile_stop_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
     precompile(_do_cpu_profile, (Int,Float64,Float64,Bool)) || error("precompilation of package functions is not supposed to fail")
+    precompile(_start_cpu_profile, (Int,Float64,)) || error("precompilation of package functions is not supposed to fail")
+    precompile(_stop_cpu_profile, (Bool,)) || error("precompilation of package functions is not supposed to fail")
+
     precompile(allocations_profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
     precompile(allocations_start_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
     precompile(allocations_stop_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
