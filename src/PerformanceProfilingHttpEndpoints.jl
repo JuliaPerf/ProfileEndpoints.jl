@@ -106,15 +106,16 @@ end
 
 function _start_cpu_profile(n, delay)
     @info "Starting CPU Profiling from PerformanceProfilingHttpEndpoints with configuration:" n delay
+    resp = HTTP.Response(200, "CPU profiling started.")
     Profile.clear()
     Profile.init(n, delay)
     Profile.start_timer()
-    return HTTP.Response(200, "CPU profiling started.")
+    return resp
 end
 
 function _stop_cpu_profile(with_pprof)
-    @info "Stopping CPU Profiling from PerformanceProfilingHttpEndpoints"
     Profile.stop_timer()
+    @info "Stopping CPU Profiling from PerformanceProfilingHttpEndpoints"
     data = Profile.retrieve()
     filename = "cpu_profile"
     return _cpu_profile_response(data, filename; with_pprof)
@@ -211,9 +212,10 @@ end
 
 function _start_alloc_profile(sample_rate)
     @info "Starting allocation Profiling from PerformanceProfilingHttpEndpoints with configuration:" sample_rate
+    resp = HTTP.Response(200, "Allocation profiling started.")
     Profile.Allocs.clear()
     Profile.Allocs.start(; sample_rate)
-    return HTTP.Response(200, "Allocation profiling started.")
+    return resp
 end
 
 function _stop_alloc_profile()
