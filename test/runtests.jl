@@ -62,6 +62,16 @@ const url = "http://127.0.0.1:$port"
             @info "Finished `profile_start/stop` tests, waiting for peakflops workload to finish."
             done[] = true
             wait(t)  # handle errors
+
+            # We retrive data via PProf directly if `pprof=true`; make sure that path's tested.
+            # This second call to `profile_stop` shoudl still return the profile, even though
+            # the profiler is already stopped, as it's `profile_start` that calls `clear()`.
+            req = HTTP.get("$url/profile_stop?pprof=true")
+            @test req.status == 200
+            # Test that there's something here
+            # TODO: actually parse the profile
+            data = read(IOBuffer(req.body), String)
+            @test length(data) > 100
         end
     end
 
