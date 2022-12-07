@@ -64,7 +64,7 @@ const url = "http://127.0.0.1:$port"
             wait(t)  # handle errors
 
             # We retrive data via PProf directly if `pprof=true`; make sure that path's tested.
-            # This second call to `profile_stop` shoudl still return the profile, even though
+            # This second call to `profile_stop` should still return the profile, even though
             # the profiler is already stopped, as it's `profile_start` that calls `clear()`.
             req = HTTP.get("$url/profile_stop?pprof=true")
             @test req.status == 200
