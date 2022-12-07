@@ -123,25 +123,35 @@ end
 
 @static if !(isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs))
 
-function allocations_profile_endpoint(::HTTP.Request)
-    return HTTP.Response(501, "You must use a build of Julia (1.8+) and PProf that support Allocations profiling.")
+for f in (:allocations_profile_endpoint, :allocations_start_endpoint, :allocations_stop_endpoint)
+    @eval function $f(::HTTP.Request)
+        return HTTP.Response(501, "You must use a build of Julia (1.8+) and PProf that support Allocations profiling.")
+    end
 end
 
 else
 
 function allocations_profile_endpoint(req::HTTP.Request)
-
     uri = HTTP.URI(req.target)
     qp = HTTP.queryparams(uri)
     if isempty(qp)
         @info "TODO: interactive HTML input page"
         return HTTP.Response(400, allocs_profile_error_message())
     end
-
     sample_rate = convert(Float64, parse(Float64, get(qp, "sample_rate", default_alloc_sample_rate())))
     duration = parse(Float64, get(qp, "duration", default_duration()))
-
     return _do_alloc_profile(duration, sample_rate)
+end
+
+function allocations_start_endpoint(req::HTTP.Request)
+    uri = HTTP.URI(req.target)
+    qp = HTTP.queryparams(uri)
+    sample_rate = convert(Float64, parse(Float64, get(qp, "sample_rate", default_alloc_sample_rate())))
+    return _start_alloc_profile(sample_rate)
+end
+
+function allocations_stop_endpoint(req::HTTP.Request)
+    return _stop_alloc_profile()
 end
 
 function _do_alloc_profile(duration, sample_rate)
@@ -158,6 +168,21 @@ function _do_alloc_profile(duration, sample_rate)
             "allocs_profile-duration=$duration&sample_rate=$sample_rate.pb.gz")
 end
 
+function _start_alloc_profile(sample_rate)
+    @info "Starting allocation Profiling from PerformanceProfilingHttpEndpoints with configuration:" sample_rate
+    Profile.Allocs.clear()
+    Profile.Allocs.start(; sample_rate)
+    return HTTP.Response(200, "Allocation profiling started.")
+end
+
+function _stop_alloc_profile()
+    Profile.Allocs.stop()
+    prof_name = tempname()
+    PProf.Allocs.pprof(out=prof_name, web=false)
+    prof_name = "$prof_name.pb.gz"
+    return _http_response(read(prof_name), "allocs_profile.pb.gz")
+end
+
 end  # if isdefined
 
 function serve_profiling_server(;addr="127.0.0.1", port=16825, verbose=false, kw...)
@@ -165,6 +190,8 @@ function serve_profiling_server(;addr="127.0.0.1", port=16825, verbose=false, kw
     router = HTTP.Router()
     HTTP.register!(router, "/profile", cpu_profile_endpoint)
     HTTP.register!(router, "/allocs_profile", allocations_profile_endpoint)
+    HTTP.register!(router, "/allocs_profile_start", allocations_start_endpoint)
+    HTTP.register!(router, "/allocs_profile_stop", allocations_stop_endpoint)
     # HTTP.serve! returns listening/serving server object
     return HTTP.serve!(router, addr, port; verbose, kw...)
 end
@@ -176,8 +203,12 @@ function __init__()
     precompile(cpu_profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
     precompile(_do_cpu_profile, (Int,Float64,Float64,Bool)) || error("precompilation of package functions is not supposed to fail")
     precompile(allocations_profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
+    precompile(allocations_start_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
+    precompile(allocations_stop_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
     if isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs)
         precompile(_do_alloc_profile, (Float64,Float64,)) || error("precompilation of package functions is not supposed to fail")
+        precompile(_start_alloc_profile, (Float64,)) || error("precompilation of package functions is not supposed to fail")
+        precompile(_stop_alloc_profile, ()) || error("precompilation of package functions is not supposed to fail")
     end
 end
 
