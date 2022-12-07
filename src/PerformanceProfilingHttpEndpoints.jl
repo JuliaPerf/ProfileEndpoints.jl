@@ -21,11 +21,21 @@ using Serialization: serialize
 #
 #----------------------------------------------------------
 
+function _http_response(binary_data, filename)
+    return HTTP.Response(200, [
+        "Content-Type" => "application/octet-stream"
+        "Content-Disposition" => "attachment; filename=$(repr(filename))"
+    ], body = binary_data)
+end
+
+###
+### CPU
+###
+
 default_n() = "1e8"
 default_delay() = "0.01"
 default_duration() = "10.0"
 default_pprof() = "true"
-default_alloc_sample_rate() = "0.0001"
 
 cpu_profile_error_message() = """Need to provide query params:
     - duration=$(default_duration())
@@ -49,24 +59,6 @@ controlled by `n=`. If you assume an average stack depth of 100, and you were ai
 50,000 samples, you'd need a buffer at least 50,000 * 100 big, or at least 5e6.
 
 The default `n` is 1e8, which should be big enough for most profiles.
-"""
-allocs_profile_error_message() = """Need to provide query params:
-    - duration=$(default_duration())
-    - sample_rate=$(default_alloc_sample_rate())
-
-Hint: A good goal is to shoot for around 1,000 to 10,000 samples. So if you know what
-duration you want to profile for, and you *already have an expectation for how much your
-program will allocate,* you can pick a sample_rate via `sample_rate = 1,000 / expected_allocations`.
-
-For example, if you expect your program will actually perform 1 million allocations:
-1_000 / 1_000_000 = 0.001
-for `duration=30&sample_rate=0.001`
-
-Note that if your sample_rate gets too large, you can really slow down the program you're
-profiling, and thus end up with an inaccurate profile.
-
-Finally, if you think your program only allocates a small amount, you can capture *all*
-allocations by passing sample_rate=1.
 """
 
 function cpu_profile_endpoint(req::HTTP.Request)
@@ -141,16 +133,34 @@ function _cpu_profile_response(data, filename; with_pprof::Bool)
     end
 end
 
-function _http_response(binary_data, filename)
-    return HTTP.Response(200, [
-        "Content-Type" => "application/octet-stream"
-        "Content-Disposition" => "attachment; filename=$(repr(filename))"
-    ], body = binary_data)
-end
+###
+### Allocs
+###
 
 function heap_snapshot_endpoint(req::HTTP.Request)
     # TODO: implement this once https://github.com/JuliaLang/julia/pull/42286 is merged
 end
+
+default_alloc_sample_rate() = "0.0001"
+
+allocs_profile_error_message() = """Need to provide query params:
+    - duration=$(default_duration())
+    - sample_rate=$(default_alloc_sample_rate())
+
+Hint: A good goal is to shoot for around 1,000 to 10,000 samples. So if you know what
+duration you want to profile for, and you *already have an expectation for how much your
+program will allocate,* you can pick a sample_rate via `sample_rate = 1,000 / expected_allocations`.
+
+For example, if you expect your program will actually perform 1 million allocations:
+1_000 / 1_000_000 = 0.001
+for `duration=30&sample_rate=0.001`
+
+Note that if your sample_rate gets too large, you can really slow down the program you're
+profiling, and thus end up with an inaccurate profile.
+
+Finally, if you think your program only allocates a small amount, you can capture *all*
+allocations by passing sample_rate=1.
+"""
 
 @static if !(isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs))
 
