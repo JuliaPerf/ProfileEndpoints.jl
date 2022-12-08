@@ -133,9 +133,28 @@ end
 ### Allocs
 ###
 
-function heap_snapshot_endpoint(req::HTTP.Request)
-    # TODO: implement this once https://github.com/JuliaLang/julia/pull/42286 is merged
+# If `all_one=true`, then every object is given size 1 so they can be easily counted.
+# Otherwise, if `false`, every object reports its actual size on the heap.
+default_heap_all_one() = "false"
+
+@static if !isdefined(Profile, :take_heap_snapshot)
+
+function heap_snapshot_endpoint(::HTTP.Request)
+    return HTTP.Response(501, "You must use a build of Julia (1.9+) that supports heap snapshots.")
 end
+
+else
+
+function heap_snapshot_endpoint(req::HTTP.Request)
+    uri = HTTP.URI(req.target)
+    qp = HTTP.queryparams(uri)
+    all_one = parse(Bool, get(qp, "all_one", default_heap_all_one()))
+    filename = Profile.take_heap_snapshot(all_one)
+    @info "Taking heap snapshot from PerformanceProfilingHttpEndpoints" all_one filename
+    return _http_response(read(filename), filename)
+end
+
+end  # if isdefined
 
 default_alloc_sample_rate() = "0.0001"
 
@@ -233,6 +252,7 @@ function serve_profiling_server(;addr="127.0.0.1", port=16825, verbose=false, kw
     HTTP.register!(router, "/profile", cpu_profile_endpoint)
     HTTP.register!(router, "/profile_start", cpu_profile_start_endpoint)
     HTTP.register!(router, "/profile_stop", cpu_profile_stop_endpoint)
+    HTTP.register!(router, "/heap_snapshot", heap_snapshot_endpoint)
     HTTP.register!(router, "/allocs_profile", allocations_profile_endpoint)
     HTTP.register!(router, "/allocs_profile_start", allocations_start_endpoint)
     HTTP.register!(router, "/allocs_profile_stop", allocations_stop_endpoint)
@@ -250,6 +270,8 @@ function __init__()
     precompile(cpu_profile_stop_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
     precompile(_do_cpu_profile, (Int,Float64,Float64,Bool)) || error("precompilation of package functions is not supposed to fail")
     precompile(_start_cpu_profile, (Int,Float64,)) || error("precompilation of package functions is not supposed to fail")
+
+    precompile(heap_snapshot_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
 
     precompile(allocations_profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
     precompile(allocations_start_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
