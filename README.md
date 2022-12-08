@@ -59,7 +59,7 @@ julia> PProf.refresh(file="./prof1.pb.gz")
 
 ### Allocation Profile
 
-Collect a allocation profile (requires Julia v1.8+):
+Collect an allocation profile (requires Julia v1.8+):
 ```bash
 $ curl '127.0.0.1:16825/allocs_profile?sample_rate=0.0001&duration=3' --output allocs_prof1.pb.gz
 ```
