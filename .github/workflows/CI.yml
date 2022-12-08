@@ -13,8 +13,9 @@ jobs:
       fail-fast: false
       matrix:
         version:
-          - "1.6"
-          - "1"
+          - "1.6"  # LTS
+          - "1"    # Latest
+          - "1.9"  # To test heap snapshot; remove when v1.9 is latest Julia release.
           - "nightly"
         os:
           - ubuntu-latest
