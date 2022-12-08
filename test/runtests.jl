@@ -75,6 +75,22 @@ const url = "http://127.0.0.1:$port"
         end
     end
 
+    @testset "Heap snapshot $query" for query in ("", "?all_one=true")
+        req = HTTP.get("$url/heap_snapshot$query", retry=false, status_exception=false)
+        if !isdefined(Profile, :take_heap_snapshot)
+            # Assert the version is before https://github.com/JuliaLang/julia/pull/46862
+            # Although we actually also need https://github.com/JuliaLang/julia/pull/47300
+            @assert VERSION < v"1.9.0-DEV.1643"
+            @test req.status == 501  # not implemented
+        else
+            @test req.status == 200
+            data = read(IOBuffer(req.body), String)
+            # Test that there's something here
+            # TODO: actually parse the profile
+            @test length(data) > 100
+        end
+    end
+
     @testset "Allocation profiling" begin
         done = Threads.Atomic{Bool}(false)
         # Schedule some work that's known to be expensive, to profile it
