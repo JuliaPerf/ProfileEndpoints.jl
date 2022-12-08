@@ -78,5 +78,5 @@ Take a heap snapshot (requires Julia v1.9+):
 $ curl '127.0.0.1:16825/heap_snapshot?all_one=false' --output prof1.heapsnapshot
 ```
 
-And upload it in the [Chrome Devtools snapshot viewer](https://developer.chrome.com/docs/devtools/memory-problems/heap-snapshots/#view_snapshots) to explore the heap.
+And upload it in the [Chrome DevTools snapshot viewer](https://developer.chrome.com/docs/devtools/memory-problems/heap-snapshots/#view_snapshots) to explore the heap.
 In Chrome `View > Developer > Developer Tools`, select the `Memory` tab, and press the `Load` button to upload the file.
