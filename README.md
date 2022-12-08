@@ -9,6 +9,8 @@ Currently provides:
     - `/profile?n=1e8&delay=0.01&duration=10&pprof=true`
 - `/allocs_profile` endpoint, with default query params:
     - `/allocs_profile?sample_rate=0.0001&duration=10`
+- `/heap_snapshot` endpoint, with default query params:
+    - `/heap_snapshot?all_one=false`
 
 
 ## Example
