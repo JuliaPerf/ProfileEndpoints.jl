@@ -1,7 +1,7 @@
 name = "PerformanceProfilingHttpEndpoints"
 uuid = "773a18e9-432f-47dd-82a7-1a805cf6f851"
 authors = ["Nathan Daly <nhdaly@gmail.com>", "Dana Wilson <odioustoad@gmail.com>"]
-version = "0.2.9"
+version = "0.2.10"
 
 [deps]
 HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
