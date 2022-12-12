@@ -1,5 +1,5 @@
 name = "ProfileEndpoints"
-uuid = "773a18e9-432f-47dd-82a7-1a805cf6f851"
+uuid = "873a18e9-432f-47dd-82a7-1a805cf6f852"
 authors = ["Nathan Daly <nhdaly@gmail.com>", "Dana Wilson <odioustoad@gmail.com>"]
 version = "0.2.10"
 
