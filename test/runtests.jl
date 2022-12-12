@@ -1,6 +1,6 @@
-module PerformanceProfilingHttpEndpointsTests
+module ProfileEndpointsTests
 
-using PerformanceProfilingHttpEndpoints
+using ProfileEndpoints
 using Test
 using Serialization
 
@@ -10,10 +10,10 @@ import Profile
 import PProf
 
 const port = 13423
-const server = PerformanceProfilingHttpEndpoints.serve_profiling_server(;port=port)
+const server = ProfileEndpoints.serve_profiling_server(;port=port)
 const url = "http://127.0.0.1:$port"
 
-@testset "PerformanceProfilingHttpEndpoints.jl" begin
+@testset "ProfileEndpoints.jl" begin
 
     @testset "CPU profiling" begin
         done = Threads.Atomic{Bool}(false)
@@ -179,4 +179,4 @@ end
 
 close(server)
 
-end # module PerformanceProfilingHttpEndpointsTests
+end # module ProfileEndpointsTests

@@ -1,4 +1,4 @@
-# PerformanceProfilingHttpEndpoints
+# ProfileEndpoints
 
 Provides HTTP endpoints (and an optional HTTP server) that wrap the profiling
 functionality exposed from existing Julia packages, to allow introspecting a live-running
@@ -36,7 +36,7 @@ Start the server on your production process
 julia> Threads.nthreads()
 4
 
-julia> t = @async PerformanceProfilingHttpEndpoints.serve_profiling_server()  # Start the profiling server in the background
+julia> t = @async ProfileEndpoints.serve_profiling_server()  # Start the profiling server in the background
 [ Info: Starting HTTP profiling server on port 16825
 Task (runnable) @0x0000000113c8d660
 
