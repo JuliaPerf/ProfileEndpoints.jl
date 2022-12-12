@@ -1,3 +1,6 @@
 /Manifest.toml
 .vscode
 test/Manifest.toml
+*.pb.gz
+*.pprof
+*.heapsnapshot

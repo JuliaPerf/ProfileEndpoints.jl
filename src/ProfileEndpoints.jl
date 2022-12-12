@@ -1,4 +1,4 @@
-module PerformanceProfilingHttpEndpoints
+module ProfileEndpoints
 
 import HTTP
 import Profile
@@ -89,7 +89,7 @@ end
 
 function cpu_profile_stop_endpoint(req::HTTP.Request)
     Profile.stop_timer()
-    @info "Stopping CPU Profiling from PerformanceProfilingHttpEndpoints"
+    @info "Stopping CPU Profiling from ProfileEndpoints"
     uri = HTTP.URI(req.target)
     qp = HTTP.queryparams(uri)
     with_pprof = parse(Bool, get(qp, "pprof", default_pprof()))
@@ -98,7 +98,7 @@ function cpu_profile_stop_endpoint(req::HTTP.Request)
 end
 
 function _do_cpu_profile(n, delay, duration, with_pprof)
-    @info "Starting CPU Profiling from PerformanceProfilingHttpEndpoints with configuration:" n delay duration
+    @info "Starting CPU Profiling from ProfileEndpoints with configuration:" n delay duration
     Profile.clear()
     Profile.init(n, delay)
     Profile.@profile sleep(duration)
@@ -107,7 +107,7 @@ function _do_cpu_profile(n, delay, duration, with_pprof)
 end
 
 function _start_cpu_profile(n, delay)
-    @info "Starting CPU Profiling from PerformanceProfilingHttpEndpoints with configuration:" n delay
+    @info "Starting CPU Profiling from ProfileEndpoints with configuration:" n delay
     resp = HTTP.Response(200, "CPU profiling started.")
     Profile.clear()
     Profile.init(n, delay)
@@ -150,7 +150,7 @@ function heap_snapshot_endpoint(req::HTTP.Request)
     qp = HTTP.queryparams(uri)
     all_one = parse(Bool, get(qp, "all_one", default_heap_all_one()))
     filename = Profile.take_heap_snapshot(all_one)
-    @info "Taking heap snapshot from PerformanceProfilingHttpEndpoints" all_one filename
+    @info "Taking heap snapshot from ProfileEndpoints" all_one filename
     return _http_response(read(filename), filename)
 end
 
@@ -211,7 +211,7 @@ function allocations_stop_endpoint(req::HTTP.Request)
 end
 
 function _do_alloc_profile(duration, sample_rate)
-    @info "Starting allocation Profiling from PerformanceProfilingHttpEndpoints with configuration:" duration sample_rate
+    @info "Starting allocation Profiling from ProfileEndpoints with configuration:" duration sample_rate
 
     Profile.Allocs.clear()
 
@@ -225,7 +225,7 @@ function _do_alloc_profile(duration, sample_rate)
 end
 
 function _start_alloc_profile(sample_rate)
-    @info "Starting allocation Profiling from PerformanceProfilingHttpEndpoints with configuration:" sample_rate
+    @info "Starting allocation Profiling from ProfileEndpoints with configuration:" sample_rate
     resp = HTTP.Response(200, "Allocation profiling started.")
     Profile.Allocs.clear()
     Profile.Allocs.start(; sample_rate)
@@ -283,4 +283,4 @@ function __init__()
     end
 end
 
-end # module PerformanceProfilingHttpEndpoints
+end # module ProfileEndpoints
