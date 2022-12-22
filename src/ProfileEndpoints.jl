@@ -243,6 +243,24 @@ end
 end  # if isdefined
 
 ###
+### Type Inference
+###
+
+function typeinf_start_endpoint()
+    Core.Compiler.__set_measure_typeinf(true)
+end
+
+function typeinf_stop_endpoint()
+    Core.Compiler.__set_measure_typeinf(true)
+    timings = Core.Compiler.Timings.clear_and_fetch_timings()
+    flame_graph = SnoopCompile.to_flamegraph(timings)
+    prof_name = tempname()
+    PProf.from_flame_graph(out=prof_name, flame_graph)
+    prof_name = "$prof_name.pb.gz"
+    return _http_response(read(prof_name), "allocs_profile.pb.gz")
+end
+
+###
 ### Server
 ###
 
@@ -256,6 +274,8 @@ function serve_profiling_server(;addr="127.0.0.1", port=16825, verbose=false, kw
     HTTP.register!(router, "/allocs_profile", allocations_profile_endpoint)
     HTTP.register!(router, "/allocs_profile_start", allocations_start_endpoint)
     HTTP.register!(router, "/allocs_profile_stop", allocations_stop_endpoint)
+    HTTP.register!(router, "/typeinf_profile_start", typeinf_start_endpoint)
+    HTTP.register!(router, "/typeinf_profile_stop", typeinf_stop_endpoint)
     # HTTP.serve! returns listening/serving server object
     return HTTP.serve!(router, addr, port; verbose, kw...)
 end
@@ -281,6 +301,9 @@ function __init__()
         precompile(_start_alloc_profile, (Float64,)) || error("precompilation of package functions is not supposed to fail")
         precompile(_stop_alloc_profile, ()) || error("precompilation of package functions is not supposed to fail")
     end
+    
+    precompile(typeinf_start_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
+    precompile(typeinf_stop_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
 end
 
 end # module ProfileEndpoints
