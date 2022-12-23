@@ -1,9 +1,10 @@
 module ProfileEndpoints
 
-using FlameGraphs
 import HTTP
 import Profile
 import PProf
+
+using FlameGraphs
 using SnoopCompile: InferenceTimingNode
 
 using Serialization: serialize
