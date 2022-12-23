@@ -1,8 +1,10 @@
 module ProfileEndpoints
 
+using FlameGraphs
 import HTTP
 import Profile
 import PProf
+using SnoopCompile: InferenceTimingNode
 
 using Serialization: serialize
 
@@ -246,16 +248,22 @@ end  # if isdefined
 ### Type Inference
 ###
 
-function typeinf_start_endpoint()
+function typeinf_start_endpoint(req::HTTP.Request)
     Core.Compiler.__set_measure_typeinf(true)
+    return HTTP.Response(200, "Type inference profiling started.")
 end
 
-function typeinf_stop_endpoint()
+function typeinf_stop_endpoint(req::HTTP.Request)
     Core.Compiler.__set_measure_typeinf(true)
-    timings = Core.Compiler.Timings.clear_and_fetch_timings()
-    flame_graph = SnoopCompile.to_flamegraph(timings)
+    timings = if isdefined(Core.Compiler.Timings, :clear_and_fetch_timings)
+        # TODO: make a root node out of this
+        Core.Compiler.Timings.clear_and_fetch_timings()
+    else
+        InferenceTimingNode(Core.Compiler.Timings._timings[1])
+    end
+    flame_graph = flamegraph(timings)
     prof_name = tempname()
-    PProf.from_flame_graph(out=prof_name, flame_graph)
+    PProf.pprof(flame_graph; out=prof_name, web=false)
     prof_name = "$prof_name.pb.gz"
     return _http_response(read(prof_name), "allocs_profile.pb.gz")
 end
