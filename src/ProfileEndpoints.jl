@@ -3,9 +3,7 @@ module ProfileEndpoints
 import HTTP
 import Profile
 import PProf
-
-using FlameGraphs
-using SnoopCompile
+import Serialization
 import SnoopCompileCore
 
 using Serialization: serialize
@@ -261,11 +259,10 @@ function typeinf_stop_endpoint(req::HTTP.Request)
     SnoopCompileCore.stop_deep_timing()
     timings = SnoopCompileCore.finish_snoopi_deep()
 
-    flame_graph = flamegraph(timings)
-    prof_name = tempname()
-    PProf.pprof(flame_graph; out=prof_name, web=false)
-    prof_name = "$prof_name.pb.gz"
-    return _http_response(read(prof_name), "allocs_profile.pb.gz")
+    iobuf = IOBuffer()
+    Serialization.serialize(iobuf, timings)
+
+    return _http_response(take!(iobuf), "inference_profile.jlserialized")
 end
 
 ###
