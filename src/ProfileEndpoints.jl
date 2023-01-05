@@ -265,7 +265,7 @@ function typeinf_stop_endpoint(req::HTTP.Request)
     prof_name = tempname()
     PProf.pprof(flame_graph; out=prof_name, web=false)
     prof_name = "$prof_name.pb.gz"
-    return _http_response(read(prof_name), "allocs_profile.pb.gz")
+    return _http_response(read(prof_name), "inference_profile.pb.gz")
 end
 
 ###
