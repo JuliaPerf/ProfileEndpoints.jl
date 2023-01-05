@@ -5,7 +5,8 @@ import Profile
 import PProf
 
 using FlameGraphs
-using SnoopCompile: InferenceTimingNode
+using SnoopCompile
+import SnoopCompileCore
 
 using Serialization: serialize
 
@@ -249,19 +250,17 @@ end  # if isdefined
 ### Type Inference
 ###
 
+# WARNING: This is not thread-safe unless your julia has merged
+# https://github.com/JuliaLang/julia/pull/47615.
 function typeinf_start_endpoint(req::HTTP.Request)
-    Core.Compiler.__set_measure_typeinf(true)
+    SnoopCompileCore.start_deep_timing()
     return HTTP.Response(200, "Type inference profiling started.")
 end
 
 function typeinf_stop_endpoint(req::HTTP.Request)
-    Core.Compiler.__set_measure_typeinf(true)
-    timings = if isdefined(Core.Compiler.Timings, :clear_and_fetch_timings)
-        # TODO: make a root node out of this
-        Core.Compiler.Timings.clear_and_fetch_timings()
-    else
-        InferenceTimingNode(Core.Compiler.Timings._timings[1])
-    end
+    SnoopCompileCore.stop_deep_timing()
+    timings = SnoopCompileCore.finish_snoopi_deep()
+
     flame_graph = flamegraph(timings)
     prof_name = tempname()
     PProf.pprof(flame_graph; out=prof_name, web=false)
@@ -310,7 +309,7 @@ function __init__()
         precompile(_start_alloc_profile, (Float64,)) || error("precompilation of package functions is not supposed to fail")
         precompile(_stop_alloc_profile, ()) || error("precompilation of package functions is not supposed to fail")
     end
-    
+
     precompile(typeinf_start_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
     precompile(typeinf_stop_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
 end
