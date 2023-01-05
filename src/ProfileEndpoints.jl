@@ -250,14 +250,21 @@ end  # if isdefined
 ### Type Inference
 ###
 
-# WARNING: This is not thread-safe unless your julia has merged
-# https://github.com/JuliaLang/julia/pull/47615.
 function typeinf_start_endpoint(req::HTTP.Request)
+    if !isdefined(Core.Compiler.Timings, :clear_and_fetch_timings)
+        # See: https://github.com/JuliaLang/julia/pull/47615.
+        return HTTP.Response(501, "Type inference profiling isn't thread safe without Julia #47615.")
+    end
     SnoopCompileCore.start_deep_timing()
     return HTTP.Response(200, "Type inference profiling started.")
 end
 
 function typeinf_stop_endpoint(req::HTTP.Request)
+    if !isdefined(Core.Compiler.Timings, :clear_and_fetch_timings)
+        # See: https://github.com/JuliaLang/julia/pull/47615.
+        return HTTP.Response(501, "Type inference profiling isn't thread safe without Julia #47615.")
+    end
+
     SnoopCompileCore.stop_deep_timing()
     timings = SnoopCompileCore.finish_snoopi_deep()
 

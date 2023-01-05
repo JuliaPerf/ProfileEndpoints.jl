@@ -153,17 +153,21 @@ const url = "http://127.0.0.1:$port"
             wait(t)  # handle errors
         end
     end
-    
+
     @testset "Type inference profiling" begin
+        if !isdefined(Core.Compiler.Timings, :clear_and_fetch_timings)
+            @test HTTP.get("$url/typeinf_profile_start", retry=false, status_exception=false).status == 501
+            @test HTTP.get("$url/typeinf_profile_stop", retry=false, status_exception=false).status == 501
+        end
         @testset "typeinf start/stop endpoints" begin
             resp = HTTP.get("$url/typeinf_profile_start", retry=false, status_exception=false)
             @test resp.status == 200
             @test String(resp.body) == "Type inference profiling started."
-            
+
             # workload
             @eval foo() = 2
             @eval foo()
-            
+
             resp = HTTP.get("$url/typeinf_profile_stop", retry=false, status_exception=false)
             @test resp.status == 200
             data = read(IOBuffer(resp.body), String)
