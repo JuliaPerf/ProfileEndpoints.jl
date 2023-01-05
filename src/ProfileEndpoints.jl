@@ -4,6 +4,10 @@ import HTTP
 import Profile
 import PProf
 
+using FlameGraphs
+using SnoopCompile
+import SnoopCompileCore
+
 using Serialization: serialize
 
 #----------------------------------------------------------
@@ -243,6 +247,42 @@ end
 end  # if isdefined
 
 ###
+### Type Inference
+###
+
+function typeinf_start_endpoint(req::HTTP.Request)
+    if !isdefined(Core.Compiler.Timings, :clear_and_fetch_timings)
+        # See: https://github.com/JuliaLang/julia/pull/47615.
+        return HTTP.Response(501, "Type inference profiling isn't thread safe without Julia #47615.")
+    end
+    SnoopCompileCore.start_deep_timing()
+    return HTTP.Response(200, "Type inference profiling started.")
+end
+
+function typeinf_stop_endpoint(req::HTTP.Request)
+    if !isdefined(Core.Compiler.Timings, :clear_and_fetch_timings)
+        # See: https://github.com/JuliaLang/julia/pull/47615.
+        return HTTP.Response(501, "Type inference profiling isn't thread safe without Julia #47615.")
+    end
+
+    SnoopCompileCore.stop_deep_timing()
+    timings = SnoopCompileCore.finish_snoopi_deep()
+
+    # Currently, SnoopCompile will throw an error if timings is empty..
+    # Reported, here: https://github.com/timholy/SnoopCompile.jl/pull/212/files#r1062926193
+    if isempty(timings.children)
+        # So just return an empty profile..
+        return _http_response("", "inference_profile.pb.gz")
+    end
+
+    flame_graph = flamegraph(timings)
+    prof_name = tempname()
+    PProf.pprof(flame_graph; out=prof_name, web=false)
+    prof_name = "$prof_name.pb.gz"
+    return _http_response(read(prof_name), "inference_profile.pb.gz")
+end
+
+###
 ### Server
 ###
 
@@ -256,6 +296,8 @@ function serve_profiling_server(;addr="127.0.0.1", port=16825, verbose=false, kw
     HTTP.register!(router, "/allocs_profile", allocations_profile_endpoint)
     HTTP.register!(router, "/allocs_profile_start", allocations_start_endpoint)
     HTTP.register!(router, "/allocs_profile_stop", allocations_stop_endpoint)
+    HTTP.register!(router, "/typeinf_profile_start", typeinf_start_endpoint)
+    HTTP.register!(router, "/typeinf_profile_stop", typeinf_stop_endpoint)
     # HTTP.serve! returns listening/serving server object
     return HTTP.serve!(router, addr, port; verbose, kw...)
 end
@@ -281,6 +323,9 @@ function __init__()
         precompile(_start_alloc_profile, (Float64,)) || error("precompilation of package functions is not supposed to fail")
         precompile(_stop_alloc_profile, ()) || error("precompilation of package functions is not supposed to fail")
     end
+
+    precompile(typeinf_start_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
+    precompile(typeinf_stop_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
 end
 
 end # module ProfileEndpoints
