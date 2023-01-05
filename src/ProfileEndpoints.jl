@@ -261,6 +261,13 @@ function typeinf_stop_endpoint(req::HTTP.Request)
     SnoopCompileCore.stop_deep_timing()
     timings = SnoopCompileCore.finish_snoopi_deep()
 
+    # Currently, SnoopCompile will throw an error if timings is empty..
+    # Reported, here: https://github.com/timholy/SnoopCompile.jl/pull/212/files#r1062926193
+    if isempty(timings.children)
+        # So just return an empty profile..
+        return _http_response("", "inference_profile.pb.gz")
+    end
+
     flame_graph = flamegraph(timings)
     prof_name = tempname()
     PProf.pprof(flame_graph; out=prof_name, web=false)
