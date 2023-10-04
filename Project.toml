@@ -1,7 +1,7 @@
 name = "ProfileEndpoints"
 uuid = "873a18e9-432f-47dd-82a7-1a805cf6f852"
 authors = ["Nathan Daly <nhdaly@gmail.com>", "Dana Wilson <odioustoad@gmail.com>"]
-version = "1.1.0"
+version = "1.2.0"
 
 [deps]
 HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
