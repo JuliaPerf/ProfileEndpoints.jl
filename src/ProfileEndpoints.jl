@@ -152,7 +152,7 @@ function heap_snapshot_endpoint(req::HTTP.Request)
     file_path = joinpath(tempdir(), "$(getpid())_$(time_ns()).heapsnapshot")
     @info "Taking heap snapshot from ProfileEndpoints" all_one file_path
     # Streaming is a new feature in 1.11+
-    if @isdefined Profile.HeapSnapshot
+    if isdefined(Profile, :HeapSnapshot)
         file_path = Profile.take_heap_snapshot(file_path, all_one, streaming=true)
         cmd = "tar cvzf - $file_path*"
         run(pipeline(`bash -c $cmd`, "$file_path.tgz"))
