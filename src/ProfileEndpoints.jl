@@ -150,8 +150,8 @@ function heap_snapshot_endpoint(req::HTTP.Request)
     qp = HTTP.queryparams(uri)
     all_one = parse(Bool, get(qp, "all_one", default_heap_all_one()))
     file_path = joinpath(tempdir(), "$(getpid())_$(time_ns()).heapsnapshot")
-    file_path = Profile.take_heap_snapshot(file_path, all_one)
     @info "Taking heap snapshot from ProfileEndpoints" all_one file_path
+    file_path = Profile.take_heap_snapshot(file_path, all_one, streaming=true)
     return _http_response(read(file_path), file_path)
 end
 
