@@ -151,8 +151,16 @@ function heap_snapshot_endpoint(req::HTTP.Request)
     all_one = parse(Bool, get(qp, "all_one", default_heap_all_one()))
     file_path = joinpath(tempdir(), "$(getpid())_$(time_ns()).heapsnapshot")
     @info "Taking heap snapshot from ProfileEndpoints" all_one file_path
-    file_path = Profile.take_heap_snapshot(file_path, all_one, streaming=true)
-    return _http_response(read(file_path), file_path)
+    # Streaming is a new feature in 1.11+
+    if @isdefined Profile.HeapSnapshot
+        file_path = Profile.take_heap_snapshot(file_path, all_one, streaming=true)
+        cmd = "tar cvzf - $file_path*"
+        run(pipeline(`bash -c $cmd`, "$file_path.tgz"))
+        return _http_response(read(file_path), "$file_path.tgz")
+    else
+        file_path = Profile.take_heap_snapshot(file_path, all_one)
+        return _http_response(read(file_path), file_path)
+    end
 end
 
 end  # if isdefined
