@@ -95,7 +95,7 @@ function cpu_profile_stop_endpoint(req::HTTP.Request)
     with_pprof = parse(Bool, get(qp, "pprof", default_pprof()))
     filename = "cpu_profile"
     # Defer the potentially expensive profile symbolication to a non-interactive thread
-    return fetch(Threads.@spawn _cpu_profile_response($filename; $with_pprof))
+    return fetch(Threads.@spawn _cpu_profile_response($filename; with_pprof=$with_pprof))
 end
 
 function _do_cpu_profile(n, delay, duration, with_pprof)
@@ -104,7 +104,8 @@ function _do_cpu_profile(n, delay, duration, with_pprof)
     Profile.init(n, delay)
     Profile.@profile sleep(duration)
     filename = "cpu_profile-duration=$duration&delay=$delay&n=$n"
-    return _cpu_profile_response(filename; with_pprof)
+    # Defer the potentially expensive profile symbolication to a non-interactive thread
+    return fetch(Threads.@spawn _cpu_profile_response($filename; with_pprof=$with_pprof))
 end
 
 function _start_cpu_profile(n, delay)
@@ -267,7 +268,7 @@ end
 # up profiling compilation!
 @static if VERSION < v"1.9" # Before Julia 1.9, precompilation didn't stick if not in __init__
     function __init__()
-        include("precompile.jl")
+        include(joinpath(pkgdir(ProfileEndpoints), "src", "precompile.jl"))
     end
 else
     include("precompile.jl")
