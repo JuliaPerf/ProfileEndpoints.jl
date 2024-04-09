@@ -94,7 +94,8 @@ function cpu_profile_stop_endpoint(req::HTTP.Request)
     qp = HTTP.queryparams(uri)
     with_pprof = parse(Bool, get(qp, "pprof", default_pprof()))
     filename = "cpu_profile"
-    return _cpu_profile_response(filename; with_pprof)
+    # Defer the potentially expensive profile symbolication to a non-interactive thread
+    return fetch(Threads.@spawn _cpu_profile_response($filename; $with_pprof))
 end
 
 function _do_cpu_profile(n, delay, duration, with_pprof)
@@ -208,7 +209,8 @@ function allocations_start_endpoint(req::HTTP.Request)
 end
 
 function allocations_stop_endpoint(req::HTTP.Request)
-    return _stop_alloc_profile()
+    # Defer the potentially expensive profile symbolication to a non-interactive thread
+    return fetch(Threads.@spawn _stop_alloc_profile())
 end
 
 function _do_alloc_profile(duration, sample_rate)
