@@ -94,7 +94,8 @@ function cpu_profile_stop_endpoint(req::HTTP.Request)
     qp = HTTP.queryparams(uri)
     with_pprof = parse(Bool, get(qp, "pprof", default_pprof()))
     filename = "cpu_profile"
-    return _cpu_profile_response(filename; with_pprof)
+    # Defer the potentially expensive profile symbolication to a non-interactive thread
+    return fetch(Threads.@spawn _cpu_profile_response($filename; with_pprof=$with_pprof))
 end
 
 function _do_cpu_profile(n, delay, duration, with_pprof)
@@ -103,7 +104,8 @@ function _do_cpu_profile(n, delay, duration, with_pprof)
     Profile.init(n, delay)
     Profile.@profile sleep(duration)
     filename = "cpu_profile-duration=$duration&delay=$delay&n=$n"
-    return _cpu_profile_response(filename; with_pprof)
+    # Defer the potentially expensive profile symbolication to a non-interactive thread
+    return fetch(Threads.@spawn _cpu_profile_response($filename; with_pprof=$with_pprof))
 end
 
 function _start_cpu_profile(n, delay)
@@ -208,7 +210,8 @@ function allocations_start_endpoint(req::HTTP.Request)
 end
 
 function allocations_stop_endpoint(req::HTTP.Request)
-    return _stop_alloc_profile()
+    # Defer the potentially expensive profile symbolication to a non-interactive thread
+    return fetch(Threads.@spawn _stop_alloc_profile())
 end
 
 function _do_alloc_profile(duration, sample_rate)
@@ -263,25 +266,12 @@ end
 
 # Precompile the endpoints as much as possible, so that your /profile attempt doesn't end
 # up profiling compilation!
-function __init__()
-    precompile(serve_profiling_server, ()) || error("precompilation of package functions is not supposed to fail")
-
-    precompile(cpu_profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
-    precompile(cpu_profile_start_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
-    precompile(cpu_profile_stop_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
-    precompile(_do_cpu_profile, (Int,Float64,Float64,Bool)) || error("precompilation of package functions is not supposed to fail")
-    precompile(_start_cpu_profile, (Int,Float64,)) || error("precompilation of package functions is not supposed to fail")
-
-    precompile(heap_snapshot_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
-
-    precompile(allocations_profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
-    precompile(allocations_start_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
-    precompile(allocations_stop_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
-    if isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs)
-        precompile(_do_alloc_profile, (Float64,Float64,)) || error("precompilation of package functions is not supposed to fail")
-        precompile(_start_alloc_profile, (Float64,)) || error("precompilation of package functions is not supposed to fail")
-        precompile(_stop_alloc_profile, ()) || error("precompilation of package functions is not supposed to fail")
+@static if VERSION < v"1.9" # Before Julia 1.9, precompilation didn't stick if not in __init__
+    function __init__()
+        include(joinpath(pkgdir(ProfileEndpoints), "src", "precompile.jl"))
     end
+else
+    include("precompile.jl")
 end
 
 end # module ProfileEndpoints
