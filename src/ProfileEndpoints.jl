@@ -22,10 +22,15 @@ using Serialization: serialize
 #----------------------------------------------------------
 
 function _http_response(binary_data, filename)
-    return HTTP.Response(200, [
-        "Content-Type" => "application/octet-stream"
-        "Content-Disposition" => "attachment; filename=$(repr(filename))"
-    ], body = binary_data)
+    if write_wrapper === nothing
+        return HTTP.Response(200, [
+            "Content-Type" => "application/octet-stream"
+            "Content-Disposition" => "attachment; filename=$(repr(filename))"
+        ], body = binary_data)
+    end
+    write_wrapper(filename, binary_data)
+    @info "Called ProfileEndpoints.write_wrapper with filename $filename"
+    return HTTP.Response(200, "$filename")
 end
 
 ###
@@ -250,16 +255,21 @@ end  # if isdefined
 ### Server
 ###
 
+write_wrapper::Union{Nothing, Function} = nothing
+function set_write_wrapper!(f::Union{Nothing, Function})
+    global write_wrapper = f
+end
+
 function serve_profiling_server(;addr="127.0.0.1", port=16825, verbose=false, kw...)
     verbose >= 0 && @info "Starting HTTP profiling server on port $port"
     router = HTTP.Router()
-    HTTP.register!(router, "/profile", cpu_profile_endpoint)
-    HTTP.register!(router, "/profile_start", cpu_profile_start_endpoint)
-    HTTP.register!(router, "/profile_stop", cpu_profile_stop_endpoint)
-    HTTP.register!(router, "/heap_snapshot", heap_snapshot_endpoint)
-    HTTP.register!(router, "/allocs_profile", allocations_profile_endpoint)
-    HTTP.register!(router, "/allocs_profile_start", allocations_start_endpoint)
-    HTTP.register!(router, "/allocs_profile_stop", allocations_stop_endpoint)
+    HTTP.register!(router, "/debug/cpu_profile", cpu_profile_endpoint)
+    HTTP.register!(router, "/debug/cpu_profile_start", cpu_profile_start_endpoint)
+    HTTP.register!(router, "/debug/cpu_profile_stop", cpu_profile_stop_endpoint)
+    HTTP.register!(router, "/debug/heap_snapshot", heap_snapshot_endpoint)
+    HTTP.register!(router, "/debug/allocs_profile", allocations_profile_endpoint)
+    HTTP.register!(router, "/debug/allocs_profile_start", allocations_start_endpoint)
+    HTTP.register!(router, "/debug/allocs_profile_stop", allocations_stop_endpoint)
     # HTTP.serve! returns listening/serving server object
     return HTTP.serve!(router, addr, port; verbose, kw...)
 end

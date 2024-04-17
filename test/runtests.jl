@@ -29,7 +29,7 @@ const url = "http://127.0.0.1:$port"
         @testset "profile endpoint" begin
             done[] = false
             t = workload()
-            req = HTTP.get("$url/profile?duration=3&pprof=false")
+            req = HTTP.get("$url/debug/cpu_profile?duration=3&pprof=false")
             @test req.status == 200
             @test length(req.body) > 0
 
@@ -38,7 +38,7 @@ const url = "http://127.0.0.1:$port"
             @test data isa Vector{UInt64}
             @test lidict isa Dict{UInt64, Vector{Base.StackTraces.StackFrame}}
 
-            @info "Finished `profile` tests, waiting for peakflops workload to finish."
+            @info "Finished `cpu_profile` tests, waiting for peakflops workload to finish."
             done[] = true
             wait(t)  # handle errors
         end
@@ -46,37 +46,72 @@ const url = "http://127.0.0.1:$port"
         @testset "profile_start/stop endpoints" begin
             done[] = false
             t = workload()
-            req = HTTP.get("$url/profile_start")
+            req = HTTP.get("$url/debug/cpu_profile_start")
             @test req.status == 200
             @test String(req.body) == "CPU profiling started."
 
             sleep(3)  # Allow workload to run a while before we stop profiling.
 
-            req = HTTP.get("$url/profile_stop?pprof=false")
+            req = HTTP.get("$url/debug/cpu_profile_stop?pprof=false")
             @test req.status == 200
+
             data, lidict = deserialize(IOBuffer(req.body))
             # Test that the profile seems like valid profile data
             @test data isa Vector{UInt64}
             @test lidict isa Dict{UInt64, Vector{Base.StackTraces.StackFrame}}
 
-            @info "Finished `profile_start/stop` tests, waiting for peakflops workload to finish."
+            @info "Finished `cpu_profile_start/stop` tests, waiting for peakflops workload to finish."
             done[] = true
             wait(t)  # handle errors
 
             # We retrive data via PProf directly if `pprof=true`; make sure that path's tested.
             # This second call to `profile_stop` should still return the profile, even though
             # the profiler is already stopped, as it's `profile_start` that calls `clear()`.
-            req = HTTP.get("$url/profile_stop?pprof=true")
+            req = HTTP.get("$url/debug/cpu_profile_stop?pprof=true")
             @test req.status == 200
             # Test that there's something here
             # TODO: actually parse the profile
             data = read(IOBuffer(req.body), String)
             @test length(data) > 100
         end
+
+        @testset "profile_start/stop endpoints with write wrapper enabled" begin
+            done[] = false
+            # dummy function to write binary content of a file to /tmp/xyzzy
+            function write_wrapper(_::String, data::Vector{UInt8})
+                open("/tmp/xyzzy", "w") do f
+                    write(f, data)
+                end
+            end
+            ProfileEndpoints.set_write_wrapper!(write_wrapper)
+            t = workload()
+            req = HTTP.get("$url/debug/cpu_profile_start")
+            @test req.status == 200
+            @test String(req.body) == "CPU profiling started."
+
+            sleep(3)  # Allow workload to run a while before we stop profiling.
+
+            req = HTTP.get("$url/debug/cpu_profile_stop?pprof=false")
+            @test req.status == 200
+
+            @info "Finished `cpu_profile_start/stop` tests with write wrapper enabled, waiting for peakflops workload to finish."
+            done[] = true
+            wait(t)  # handle errors
+
+            # We retrive data via PProf directly if `pprof=true`; make sure that path's tested.
+            # This second call to `profile_stop` should still return the profile, even though
+            # the profiler is already stopped, as it's `profile_start` that calls `clear()`.
+            req = HTTP.get("$url/debug/cpu_profile_stop?pprof=true")
+            @test req.status == 200
+            # Test that there's something here
+            # TODO: actually parse the profile
+            @test isfile("/tmp/xyzzy")
+            ProfileEndpoints.set_write_wrapper!(nothing)
+        end
     end
 
     @testset "Heap snapshot $query" for query in ("", "?all_one=true")
-        req = HTTP.get("$url/heap_snapshot$query", retry=false, status_exception=false)
+        req = HTTP.get("$url/debug/heap_snapshot$query", retry=false, status_exception=false)
         if !isdefined(Profile, :take_heap_snapshot)
             # Assert the version is before https://github.com/JuliaLang/julia/pull/46862
             # Although we actually also need https://github.com/JuliaLang/julia/pull/47300
@@ -105,7 +140,7 @@ const url = "http://127.0.0.1:$port"
         @testset "allocs_profile endpoint" begin
             done[] = false
             t = workload()
-            req = HTTP.get("$url/allocs_profile?duration=3", retry=false, status_exception=false)
+            req = HTTP.get("$url/debug/allocs_profile?duration=3", retry=false, status_exception=false)
             if !(isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs))
                 @assert VERSION < v"1.8.0-DEV.1346"
                 @test req.status == 501  # not implemented
@@ -126,7 +161,7 @@ const url = "http://127.0.0.1:$port"
         @testset "allocs_profile_start/stop endpoints" begin
             done[] = false
             t = workload()
-            req = HTTP.get("$url/allocs_profile_start", retry=false, status_exception=false)
+            req = HTTP.get("$url/debug/allocs_profile_start", retry=false, status_exception=false)
             if !(isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs))
                 @assert VERSION < v"1.8.0-DEV.1346"
                 @test req.status == 501  # not implemented
@@ -137,7 +172,7 @@ const url = "http://127.0.0.1:$port"
 
             sleep(3)  # Allow workload to run a while before we stop profiling.
 
-            req = HTTP.get("$url/allocs_profile_stop", retry=false, status_exception=false)
+            req = HTTP.get("$url/debug/allocs_profile_stop", retry=false, status_exception=false)
             if !(isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs))
                 @assert VERSION < v"1.8.0-DEV.1346"
                 @test req.status == 501  # not implemented
@@ -155,7 +190,7 @@ const url = "http://127.0.0.1:$port"
     end
 
     @testset "error handling" begin
-        let res = HTTP.get("$url/profile", status_exception=false)
+        let res = HTTP.get("$url/debug/cpu_profile", status_exception=false)
             @test 400 <= res.status < 500
             @test res.status != 404
             # Make sure we describe how to use the endpoint
@@ -165,7 +200,7 @@ const url = "http://127.0.0.1:$port"
         end
 
         if (isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs))
-            let res = HTTP.get("$url/allocs_profile", status_exception=false)
+            let res = HTTP.get("$url/debug/allocs_profile", status_exception=false)
                 @test 400 <= res.status < 500
                 @test res.status != 404
                 # Make sure we describe how to use the endpoint
