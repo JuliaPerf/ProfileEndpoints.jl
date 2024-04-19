@@ -21,11 +21,16 @@ using Serialization: serialize
 #
 #----------------------------------------------------------
 
-function _http_response(binary_data, filename)
+function _http_create_response_with_profile_inlined(binary_data, filename)
     return HTTP.Response(200, [
         "Content-Type" => "application/octet-stream"
         "Content-Disposition" => "attachment; filename=$(repr(filename))"
     ], body = binary_data)
+end
+
+function _http_create_response_with_profile_as_file(filename)
+    @info "Returning path of profile: $filename"
+    return HTTP.Response(200, filename)
 end
 
 ###
@@ -68,23 +73,13 @@ function cpu_profile_endpoint(req::HTTP.Request)
         @info "TODO: interactive HTML input page"
         return HTTP.Response(400, cpu_profile_error_message())
     end
-
-    # Run the profile
-    n = convert(Int, parse(Float64, get(qp, "n", default_n())))
-    delay = parse(Float64, get(qp, "delay", default_delay()))
-    duration = parse(Float64, get(qp, "duration", default_duration()))
-    with_pprof = parse(Bool, get(qp, "pprof", default_pprof()))
-    return _do_cpu_profile(n, delay, duration, with_pprof)
+    return handle_cpu_profile(qp)
 end
 
 function cpu_profile_start_endpoint(req::HTTP.Request)
     uri = HTTP.URI(req.target)
     qp = HTTP.queryparams(uri)
-
-    # Run the profile
-    n = convert(Int, parse(Float64, get(qp, "n", default_n())))
-    delay = parse(Float64, get(qp, "delay", default_delay()))
-    return _start_cpu_profile(n, delay)
+    return handle_cpu_profile_start(qp)
 end
 
 function cpu_profile_stop_endpoint(req::HTTP.Request)
@@ -92,20 +87,38 @@ function cpu_profile_stop_endpoint(req::HTTP.Request)
     @info "Stopping CPU Profiling from ProfileEndpoints"
     uri = HTTP.URI(req.target)
     qp = HTTP.queryparams(uri)
-    with_pprof = parse(Bool, get(qp, "pprof", default_pprof()))
-    filename = "cpu_profile"
-    # Defer the potentially expensive profile symbolication to a non-interactive thread
-    return fetch(Threads.@spawn _cpu_profile_response($filename; with_pprof=$with_pprof))
+    return handle_cpu_profile_stop(qp)
 end
 
-function _do_cpu_profile(n, delay, duration, with_pprof)
+function handle_cpu_profile(qp, stage_path = nothing)
+    # Run the profile
+    n = convert(Int, parse(Float64, get(qp, "n", default_n())))
+    delay = parse(Float64, get(qp, "delay", default_delay()))
+    duration = parse(Float64, get(qp, "duration", default_duration()))
+    with_pprof = parse(Bool, get(qp, "pprof", default_pprof()))
+    return _do_cpu_profile(n, delay, duration, with_pprof, stage_path)
+end
+
+function _do_cpu_profile(n, delay, duration, with_pprof, stage_path = nothing)
     @info "Starting CPU Profiling from ProfileEndpoints with configuration:" n delay duration
     Profile.clear()
     Profile.init(n, delay)
     Profile.@profile sleep(duration)
-    filename = "cpu_profile-duration=$duration&delay=$delay&n=$n"
+    path = "cpu_profile-duration=$duration&delay=$delay&n=$n"
+    if stage_path === nothing
+        # Defer the potentially expensive profile symbolication to a non-interactive thread
+        return fetch(Threads.@spawn _cpu_profile_get_response($path; with_pprof=$with_pprof))
+    end
+    path = joinpath(stage_path, path)
     # Defer the potentially expensive profile symbolication to a non-interactive thread
-    return fetch(Threads.@spawn _cpu_profile_response($filename; with_pprof=$with_pprof))
+    return fetch(Threads.@spawn _cpu_profile_get_response_and_write_to_file($path; with_pprof=$with_pprof))
+end
+
+function handle_cpu_profile_start(qp)
+    # Run the profile
+    n = convert(Int, parse(Float64, get(qp, "n", default_n())))
+    delay = parse(Float64, get(qp, "delay", default_delay()))
+    return _start_cpu_profile(n, delay)
 end
 
 function _start_cpu_profile(n, delay)
@@ -117,17 +130,46 @@ function _start_cpu_profile(n, delay)
     return resp
 end
 
-function _cpu_profile_response(filename; with_pprof::Bool)
+function handle_cpu_profile_stop(qp, stage_path = nothing)
+    with_pprof = parse(Bool, get(qp, "pprof", default_pprof()))
+    path = "cpu_profile"
+    if stage_path === nothing
+        # Defer the potentially expensive profile symbolication to a non-interactive thread
+        return fetch(Threads.@spawn _cpu_profile_get_response($path; with_pprof=$with_pprof))
+    end
+    path = joinpath(stage_path, "cpu_profile")
+    # Defer the potentially expensive profile symbolication to a non-interactive thread
+    return fetch(Threads.@spawn _cpu_profile_get_response_and_write_to_file($path; with_pprof=$with_pprof))
+end
+
+function _cpu_profile_get_response_and_write_to_file(filename; with_pprof::Bool)
     if with_pprof
-        prof_name = tempname()
-        PProf.pprof(out=prof_name, web=false)
-        prof_name = "$prof_name.pb.gz"
-        return _http_response(read(prof_name), "$filename.pb.gz")
+        PProf.pprof(out=filename, web=false)
+        filename = "$filename.pb.gz"
+        return _http_create_response_with_profile_as_file(filename)
     else
         iobuf = IOBuffer()
         data = Profile.retrieve()
         serialize(iobuf, data)
-        return _http_response(take!(iobuf), "$filename.prof.bin")
+        filename = "$filename.profile"
+        open(filename, "w") do io
+            write(io, iobuf.data)
+        end
+        return _http_create_response_with_profile_as_file(filename)
+    end
+end
+
+function _cpu_profile_get_response(filename; with_pprof::Bool)
+    if with_pprof
+        prof_name = tempname()
+        PProf.pprof(out=prof_name, web=false)
+        prof_name = "$prof_name.pb.gz"
+        return _http_create_response_with_profile_inlined(read(prof_name), "$filename.pb.gz")
+    else
+        iobuf = IOBuffer()
+        data = Profile.retrieve()
+        serialize(iobuf, data)
+        return _http_create_response_with_profile_inlined(iobuf.data, "$filename.profile")
     end
 end
 
@@ -154,7 +196,7 @@ function heap_snapshot_endpoint(req::HTTP.Request)
     file_path = joinpath(tempdir(), "$(getpid())_$(time_ns()).heapsnapshot")
     file_path = Profile.take_heap_snapshot(file_path, all_one)
     @info "Taking heap snapshot from ProfileEndpoints" all_one file_path
-    return _http_response(read(file_path), file_path)
+    return _http_create_response_with_profile_inlined(read(file_path), file_path)
 end
 
 end  # if isdefined
@@ -224,7 +266,7 @@ function _do_alloc_profile(duration, sample_rate)
     prof_name = tempname()
     PProf.Allocs.pprof(out=prof_name, web=false)
     prof_name = "$prof_name.pb.gz"
-    return _http_response(read(prof_name),
+    return _http_create_response_with_profile_inlined(read(prof_name),
             "allocs_profile-duration=$duration&sample_rate=$sample_rate.pb.gz")
 end
 
@@ -241,16 +283,50 @@ function _stop_alloc_profile()
     prof_name = tempname()
     PProf.Allocs.pprof(out=prof_name, web=false)
     prof_name = "$prof_name.pb.gz"
-    return _http_response(read(prof_name), "allocs_profile.pb.gz")
+    return _http_create_response_with_profile_inlined(read(prof_name), "allocs_profile.pb.gz")
 end
 
 end  # if isdefined
 
 ###
+### Debug super-endpoint
+###
+
+debug_super_endpoint_error_message() = """Need to provide at least a `profile_type` query param"""
+
+function debug_profile_endpoint_with_stage_path(stage_path = nothing)
+    # If a stage has not been assigned, create a temporary directory to avoid
+    # writing to the current working directory
+    if stage_path === nothing
+        stage_path = tempdir()
+    end
+    function debug_profile_endpoint(req::HTTP.Request)
+        uri = HTTP.URI(req.target)
+        qp = HTTP.queryparams(uri)
+        if isempty(qp) || !haskey(qp, "profile_type")
+            @info "TODO: interactive HTML input page"
+            return HTTP.Response(400, debug_super_endpoint_error_message())
+        end
+        req_type = qp["profile_type"]
+        @info "Debugging endpoint hit with type: $req_type"
+        if req_type == "cpu_profile"
+            return handle_cpu_profile(qp, stage_path)
+        elseif req_type == "cpu_profile_start"
+            return handle_cpu_profile_start(qp)
+        elseif req_type == "cpu_profile_stop"
+            return handle_cpu_profile_stop(qp, stage_path)
+        else
+            error("Unknown profile_type: $req_type")
+        end
+    end
+    return debug_profile_endpoint
+end
+
+###
 ### Server
 ###
 
-function serve_profiling_server(;addr="127.0.0.1", port=16825, verbose=false, kw...)
+function serve_profiling_server(;addr="127.0.0.1", port=16825, verbose=false, stage_path = nothing, kw...)
     verbose >= 0 && @info "Starting HTTP profiling server on port $port"
     router = HTTP.Router()
     HTTP.register!(router, "/profile", cpu_profile_endpoint)
@@ -260,6 +336,8 @@ function serve_profiling_server(;addr="127.0.0.1", port=16825, verbose=false, kw
     HTTP.register!(router, "/allocs_profile", allocations_profile_endpoint)
     HTTP.register!(router, "/allocs_profile_start", allocations_start_endpoint)
     HTTP.register!(router, "/allocs_profile_stop", allocations_stop_endpoint)
+    debug_profile_endpoint = debug_profile_endpoint_with_stage_path(stage_path)
+    HTTP.register!(router, "/debug_engine", debug_profile_endpoint)
     # HTTP.serve! returns listening/serving server object
     return HTTP.serve!(router, addr, port; verbose, kw...)
 end

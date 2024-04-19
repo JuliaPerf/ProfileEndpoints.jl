@@ -73,6 +73,47 @@ const url = "http://127.0.0.1:$port"
             data = read(IOBuffer(req.body), String)
             @test length(data) > 100
         end
+
+        @testset "debug endpoint cpu profile" begin
+            done[] = false
+            t = workload()
+            req = HTTP.get("$url/debug_engine?profile_type=cpu_profile&duration=3&pprof=false")
+            @test req.status == 200
+            fname = read(IOBuffer(req.body), String)
+            @info "filename: $fname"
+            @test isfile(fname)
+        end
+
+        @testset "debug endpoint cpu profile start/end" begin
+            done[] = false
+            t = workload()
+            req = HTTP.get("$url/debug_engine?profile_type=cpu_profile_start")
+            @test req.status == 200
+            @test String(req.body) == "CPU profiling started."
+
+            sleep(3)  # Allow workload to run a while before we stop profiling.
+
+            req = HTTP.get("$url/debug_engine?profile_type=cpu_profile_stop&pprof=false")
+            @test req.status == 200
+            fname = read(IOBuffer(req.body), String)
+            @info "filename: $fname"
+            @test isfile(fname)
+
+            @info "Finished `debug profile_start/stop` tests, waiting for peakflops workload to finish."
+            done[] = true
+            wait(t)  # handle errors
+
+            # We retrive data via PProf directly if `pprof=true`; make sure that path's tested.
+            # This second call to `profile_stop` should still return the profile, even though
+            # the profiler is already stopped, as it's `profile_start` that calls `clear()`.
+            req = HTTP.get("$url/debug_engine?profile_type=cpu_profile_stop&pprof=true")
+            @test req.status == 200
+            # Test that there's something here
+            # TODO: actually parse the profile
+            fname = read(IOBuffer(req.body), String)
+            @info "filename: $fname"
+            @test isfile(fname)
+        end
     end
 
     @testset "Heap snapshot $query" for query in ("", "?all_one=true")
