@@ -6,6 +6,7 @@ using Test
 
 import InteractiveUtils
 import HTTP
+import JSON3
 import Profile
 import PProf
 
@@ -77,7 +78,9 @@ const url = "http://127.0.0.1:$port"
         @testset "debug endpoint cpu profile" begin
             done[] = false
             t = workload()
-            req = HTTP.get("$url/debug_engine?profile_type=cpu_profile&duration=3&pprof=false")
+            headers = ["Content-Type" => "application/json"]
+            payload = JSON3.write(Dict("profile_type" => "cpu_profile"))
+            req = HTTP.post("$url/debug_engine", headers, payload)
             @test req.status == 200
             fname = read(IOBuffer(req.body), String)
             @info "filename: $fname"
@@ -87,13 +90,17 @@ const url = "http://127.0.0.1:$port"
         @testset "debug endpoint cpu profile start/end" begin
             done[] = false
             t = workload()
-            req = HTTP.get("$url/debug_engine?profile_type=cpu_profile_start")
+            # JSON payload should contain profile_type
+            headers = ["Content-Type" => "application/json"]
+            payload = JSON3.write(Dict("profile_type" => "cpu_profile_start"))
+            req = HTTP.post("$url/debug_engine", headers, payload)
             @test req.status == 200
             @test String(req.body) == "CPU profiling started."
 
             sleep(3)  # Allow workload to run a while before we stop profiling.
 
-            req = HTTP.get("$url/debug_engine?profile_type=cpu_profile_stop&pprof=false")
+            payload = JSON3.write(Dict("profile_type" => "cpu_profile_stop"))
+            req = HTTP.post("$url/debug_engine", headers, payload)
             @test req.status == 200
             fname = read(IOBuffer(req.body), String)
             @info "filename: $fname"
@@ -106,7 +113,8 @@ const url = "http://127.0.0.1:$port"
             # We retrive data via PProf directly if `pprof=true`; make sure that path's tested.
             # This second call to `profile_stop` should still return the profile, even though
             # the profiler is already stopped, as it's `profile_start` that calls `clear()`.
-            req = HTTP.get("$url/debug_engine?profile_type=cpu_profile_stop&pprof=true")
+            payload = JSON3.write(Dict("profile_type" => "cpu_profile_stop", "pprof" => "true"))
+            req = HTTP.post("$url/debug_engine", headers, payload)
             @test req.status == 200
             # Test that there's something here
             # TODO: actually parse the profile
