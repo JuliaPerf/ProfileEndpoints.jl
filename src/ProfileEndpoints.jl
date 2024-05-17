@@ -1,6 +1,7 @@
 module ProfileEndpoints
 
 import HTTP
+import JSON3
 import Profile
 import PProf
 
@@ -73,13 +74,19 @@ function cpu_profile_endpoint(req::HTTP.Request)
         @info "TODO: interactive HTML input page"
         return HTTP.Response(400, cpu_profile_error_message())
     end
-    return handle_cpu_profile(qp)
+    n = convert(Int, parse(Float64, get(qp, "n", default_n())))
+    delay = parse(Float64, get(qp, "delay", default_delay()))
+    duration = parse(Float64, get(qp, "duration", default_duration()))
+    with_pprof = parse(Bool, get(qp, "pprof", default_pprof()))
+    return handle_cpu_profile(n, delay, duration, with_pprof)
 end
 
 function cpu_profile_start_endpoint(req::HTTP.Request)
     uri = HTTP.URI(req.target)
     qp = HTTP.queryparams(uri)
-    return handle_cpu_profile_start(qp)
+    n = convert(Int, parse(Float64, get(qp, "n", default_n())))
+    delay = parse(Float64, get(qp, "delay", default_delay()))
+    return handle_cpu_profile_start(n, delay)
 end
 
 function cpu_profile_stop_endpoint(req::HTTP.Request)
@@ -87,15 +94,12 @@ function cpu_profile_stop_endpoint(req::HTTP.Request)
     @info "Stopping CPU Profiling from ProfileEndpoints"
     uri = HTTP.URI(req.target)
     qp = HTTP.queryparams(uri)
-    return handle_cpu_profile_stop(qp)
+    with_pprof = parse(Bool, get(qp, "pprof", default_pprof()))
+    return handle_cpu_profile_stop(with_pprof)
 end
 
-function handle_cpu_profile(qp, stage_path = nothing)
+function handle_cpu_profile(n, delay, duration, with_pprof, stage_path = nothing)
     # Run the profile
-    n = convert(Int, parse(Float64, get(qp, "n", default_n())))
-    delay = parse(Float64, get(qp, "delay", default_delay()))
-    duration = parse(Float64, get(qp, "duration", default_duration()))
-    with_pprof = parse(Bool, get(qp, "pprof", default_pprof()))
     return _do_cpu_profile(n, delay, duration, with_pprof, stage_path)
 end
 
@@ -114,10 +118,8 @@ function _do_cpu_profile(n, delay, duration, with_pprof, stage_path = nothing)
     return fetch(Threads.@spawn _cpu_profile_get_response_and_write_to_file($path; with_pprof=$with_pprof))
 end
 
-function handle_cpu_profile_start(qp)
+function handle_cpu_profile_start(n, delay)
     # Run the profile
-    n = convert(Int, parse(Float64, get(qp, "n", default_n())))
-    delay = parse(Float64, get(qp, "delay", default_delay()))
     return _start_cpu_profile(n, delay)
 end
 
@@ -130,8 +132,7 @@ function _start_cpu_profile(n, delay)
     return resp
 end
 
-function handle_cpu_profile_stop(qp, stage_path = nothing)
-    with_pprof = parse(Bool, get(qp, "pprof", default_pprof()))
+function handle_cpu_profile_stop(with_pprof, stage_path = nothing)
     path = "cpu_profile"
     if stage_path === nothing
         # Defer the potentially expensive profile symbolication to a non-interactive thread
@@ -292,7 +293,7 @@ end  # if isdefined
 ### Debug super-endpoint
 ###
 
-debug_super_endpoint_error_message() = """Need to provide at least a `profile_type` query param"""
+debug_super_endpoint_error_message() = """Need to provide at least a `profile_type` argument in the JSON body"""
 
 function debug_profile_endpoint_with_stage_path(stage_path = nothing)
     # If a stage has not been assigned, create a temporary directory to avoid
@@ -301,22 +302,36 @@ function debug_profile_endpoint_with_stage_path(stage_path = nothing)
         stage_path = tempdir()
     end
     function debug_profile_endpoint(req::HTTP.Request)
-        uri = HTTP.URI(req.target)
-        qp = HTTP.queryparams(uri)
-        if isempty(qp) || !haskey(qp, "profile_type")
-            @info "TODO: interactive HTML input page"
+        @info "Debugging profile endpoint"
+        json_body = HTTP.body(req)
+        if isempty(json_body)
             return HTTP.Response(400, debug_super_endpoint_error_message())
         end
-        req_type = qp["profile_type"]
-        @info "Debugging endpoint hit with type: $req_type"
-        if req_type == "cpu_profile"
-            return handle_cpu_profile(qp, stage_path)
-        elseif req_type == "cpu_profile_start"
-            return handle_cpu_profile_start(qp)
-        elseif req_type == "cpu_profile_stop"
-            return handle_cpu_profile_stop(qp, stage_path)
+        body = JSON3.read(json_body)
+        if !haskey(body, "profile_type")
+            return HTTP.Response(400, debug_super_endpoint_error_message())
+        end
+        profile_type = body["profile_type"]
+        if profile_type == "cpu_profile"
+            return handle_cpu_profile(
+                convert(Int, parse(Float64, get(body, "n", default_n()))),
+                parse(Float64, get(body, "delay", default_delay())),
+                parse(Float64, get(body, "duration", default_duration())),
+                parse(Bool, get(body, "pprof", default_pprof())),
+                stage_path
+            )
+        elseif profile_type == "cpu_profile_start"
+            return handle_cpu_profile_start(
+                convert(Int, parse(Float64, get(body, "n", default_n()))),
+                parse(Float64, get(body, "delay", default_delay()))
+            )
+        elseif profile_type == "cpu_profile_stop"
+            return handle_cpu_profile_stop(
+                parse(Bool, get(body, "pprof", default_pprof())),
+                stage_path
+            )
         else
-            error("Unknown profile_type: $req_type")
+            return HTTP.Response(400, "Unknown profile_type: $profile_type")
         end
     end
     return debug_profile_endpoint
@@ -326,9 +341,8 @@ end
 ### Server
 ###
 
-function serve_profiling_server(;addr="127.0.0.1", port=16825, verbose=false, stage_path = nothing, kw...)
-    verbose >= 0 && @info "Starting HTTP profiling server on port $port"
-    router = HTTP.Router()
+function register_endpoints(router; stage_path = nothing)
+    @info "Registering profiling endpoints"
     HTTP.register!(router, "/profile", cpu_profile_endpoint)
     HTTP.register!(router, "/profile_start", cpu_profile_start_endpoint)
     HTTP.register!(router, "/profile_stop", cpu_profile_stop_endpoint)
@@ -338,8 +352,15 @@ function serve_profiling_server(;addr="127.0.0.1", port=16825, verbose=false, st
     HTTP.register!(router, "/allocs_profile_stop", allocations_stop_endpoint)
     debug_profile_endpoint = debug_profile_endpoint_with_stage_path(stage_path)
     HTTP.register!(router, "/debug_engine", debug_profile_endpoint)
-    # HTTP.serve! returns listening/serving server object
-    return HTTP.serve!(router, addr, port; verbose, kw...)
+end
+
+function serve_profiling_server(;addr="127.0.0.1", port=16825, verbose=false, stage_path = nothing, kw...)
+    if verbose >= 0
+        @info "Starting profiling server on http://$addr:$port"
+    end
+    router = HTTP.Router()
+    register_endpoints(router; stage_path)
+    return HTTP.serve!(router, addr, port; verbose=verbose, kw...)
 end
 
 # Precompile the endpoints as much as possible, so that your /profile attempt doesn't end
