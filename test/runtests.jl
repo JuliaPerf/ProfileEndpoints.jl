@@ -122,6 +122,18 @@ const url = "http://127.0.0.1:$port"
             @info "filename: $fname"
             @test isfile(fname)
         end
+
+        @testset "Debug endpoint task backtraces" begin
+            @static if VERSION >= v"1.10.0-DEV.0"
+                headers = ["Content-Type" => "application/json"]
+                payload = JSON3.write(Dict("profile_type" => "task_backtraces"))
+                req = HTTP.post("$url/debug_engine", headers, payload)
+                @test req.status == 200
+                fname = read(IOBuffer(req.body), String)
+                @info "filename: $fname"
+                @test isfile(fname)
+            end
+        end
     end
 
     @testset "Heap snapshot $query" for query in ("", "?all_one=true")
@@ -200,6 +212,20 @@ const url = "http://127.0.0.1:$port"
             @info "Finished `allocs_profile_stop` tests, waiting for workload to finish."
             done[] = true
             wait(t)  # handle errors
+        end
+    end
+
+    @testset "task backtraces" begin
+        @testset "task_backtraces endpoint" begin
+            @static if VERSION >= v"1.10.0-DEV.0"
+                req = HTTP.get("$url/task_backtraces", retry=false, status_exception=false)
+                @test req.status == 200
+                @test length(req.body) > 0
+
+                # Test whether the profile returned a valid file
+                data = read(IOBuffer(req.body), String)
+                @test isfile(data)
+            end
         end
     end
 

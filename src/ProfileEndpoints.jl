@@ -290,6 +290,34 @@ end
 end  # if isdefined
 
 ###
+### Task backtraces
+###
+
+function task_backtraces_endpoint(req::HTTP.Request)
+    @static if VERSION < v"1.10.0-DEV.0"
+        return HTTP.Response(501, "Task backtraces are only available in Julia 1.10+")
+    end
+    return handle_task_backtraces()
+end
+
+function handle_task_backtraces(stage_path = nothing)
+    @info "Starting Task Backtrace Profiling from ProfileEndpoints"
+    @static if VERSION < v"1.10.0-DEV.0"
+        return HTTP.Response(501, "Task backtraces are only available in Julia 1.10+")
+    end
+    if stage_path === nothing
+        stage_path = tempdir()
+    end
+    backtrace_file = joinpath(stage_path, "task_backtraces.txt")
+    open(backtrace_file, "w") do io
+        redirect_stderr(io) do
+            ccall(:jl_print_task_backtraces, Cvoid, ())
+        end
+    end
+    return HTTP.Response(200, backtrace_file)
+end
+
+###
 ### Debug super-endpoint
 ###
 
@@ -330,6 +358,8 @@ function debug_profile_endpoint_with_stage_path(stage_path = nothing)
                 parse(Bool, get(body, "pprof", default_pprof())),
                 stage_path
             )
+        elseif profile_type == "task_backtraces"
+            return handle_task_backtraces(stage_path)
         else
             return HTTP.Response(400, "Unknown profile_type: $profile_type")
         end
@@ -350,6 +380,7 @@ function register_endpoints(router; stage_path = nothing)
     HTTP.register!(router, "/allocs_profile", allocations_profile_endpoint)
     HTTP.register!(router, "/allocs_profile_start", allocations_start_endpoint)
     HTTP.register!(router, "/allocs_profile_stop", allocations_stop_endpoint)
+    HTTP.register!(router, "/task_backtraces", task_backtraces_endpoint)
     debug_profile_endpoint = debug_profile_endpoint_with_stage_path(stage_path)
     HTTP.register!(router, "/debug_engine", debug_profile_endpoint)
 end
