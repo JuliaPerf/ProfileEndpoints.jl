@@ -29,6 +29,10 @@ Julia process to interrogate its performance characteristics.
 - `/heap_snapshot` endpoint to take a heap snapshot with `Profile.take_heap_snapshot`.
     - Default query params: `/heap_snapshot?all_one=false`
 
+**Task Backtraces**
+- `/task_backtraces` endpoint to collect task backtraces. Only available in Julia v1.10+.
+    - Default query params: none.
+
 ## Examples
 
 Start the server on your production process
@@ -80,3 +84,11 @@ $ curl '127.0.0.1:16825/heap_snapshot?all_one=false' --output prof1.heapsnapshot
 
 And upload it in the [Chrome DevTools snapshot viewer](https://developer.chrome.com/docs/devtools/memory-problems/heap-snapshots/#view_snapshots) to explore the heap.
 In Chrome `View > Developer > Developer Tools`, select the `Memory` tab, and press the `Load` button to upload the file.
+
+### Task Backtraces
+
+Collect task backtraces (requires Julia v1.10+):
+```bash
+$ curl '127.0.0.1:16825/task_backtraces' --output task_backtraces.txt
+```
+
