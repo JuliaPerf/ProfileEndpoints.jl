@@ -134,6 +134,20 @@ const url = "http://127.0.0.1:$port"
                 @test isfile(fname)
             end
         end
+
+        @testset "Debug endpoint CPU profile and remove" begin
+            headers = ["Content-Type" => "application/json"]
+            payload = JSON3.write(Dict("profile_type" => "cpu_profile"))
+            req = HTTP.post("$url/debug_engine", headers, payload)
+            @test req.status == 200
+            fname = read(IOBuffer(req.body), String)
+            @info "filename: $fname"
+            @test isfile(fname)
+            headers = ["Content-Type" => "application/json"]
+            payload = JSON3.write(Dict("profile_type" => "remove_profile", "profile_file" => fname))
+            req = HTTP.post("$url/debug_engine", headers, payload)
+            @test req.status == 200
+        end
     end
 
     @testset "Heap snapshot $query" for query in ("", "?all_one=true")

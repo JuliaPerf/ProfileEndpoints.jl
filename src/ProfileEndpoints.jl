@@ -307,12 +307,35 @@ function handle_task_backtraces(stage_path = nothing)
     else
         backtrace_file = tempname(stage_path; cleanup=false)
     end
+    backtrace_file *= ".task_backtraces"
     open(backtrace_file, "w") do io
         redirect_stderr(io) do
             ccall(:jl_print_task_backtraces, Cvoid, ())
         end
     end
     return HTTP.Response(200, backtrace_file)
+end
+
+###
+### Profile removal
+###
+
+function has_profile_extension(file)
+    return endswith(file, ".profile") || endswith(file, ".pb.gz") || endswith(file, ".task_backtraces")
+end
+
+function handle_profile_removal(profile_file, stage_path = nothing)
+    if stage_path !== nothing
+        profile_file = joinpath(stage_path, profile_file)
+    end
+    if !has_profile_extension(profile_file)
+        return HTTP.Response(400, "Profile file must have a `.profile`, `.pb.gz`, or `.task_backtraces` extension")
+    end
+    if !isfile(profile_file)
+        return HTTP.Response(400, "Profile file not found")
+    end
+    rm(profile_file)
+    return HTTP.Response(200, "All profiles removed")
 end
 
 ###
@@ -358,6 +381,12 @@ function debug_profile_endpoint_with_stage_path(stage_path = nothing)
             )
         elseif profile_type == "task_backtraces"
             return handle_task_backtraces(stage_path)
+        elseif profile_type == "remove_profile"
+            if !haskey(body, "profile_file")
+                return HTTP.Response(400, "Need to provide a `profile_file` argument in the JSON body")
+            end
+            profile_file = body["profile_file"]
+            return handle_profile_removal(profile_file, stage_path)
         else
             return HTTP.Response(400, "Unknown profile_type: $profile_type")
         end
