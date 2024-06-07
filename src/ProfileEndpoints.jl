@@ -22,10 +22,9 @@ using Serialization: serialize
 #
 #----------------------------------------------------------
 
-function _http_create_response_with_profile_inlined(binary_data, filename)
+function _http_create_response_with_profile_inlined(binary_data)
     return HTTP.Response(200, [
         "Content-Type" => "application/octet-stream"
-        "Content-Disposition" => "attachment; filename=$(repr(filename))"
     ], body = binary_data)
 end
 
@@ -108,12 +107,11 @@ function _do_cpu_profile(n, delay, duration, with_pprof, stage_path = nothing)
     Profile.clear()
     Profile.init(n, delay)
     Profile.@profile sleep(duration)
-    path = "cpu_profile-duration=$duration&delay=$delay&n=$n"
     if stage_path === nothing
         # Defer the potentially expensive profile symbolication to a non-interactive thread
-        return fetch(Threads.@spawn _cpu_profile_get_response($path; with_pprof=$with_pprof))
+        return fetch(Threads.@spawn _cpu_profile_get_response(with_pprof=$with_pprof))
     end
-    path = joinpath(stage_path, path)
+    path = tempname(stage_path; cleanup=false)
     # Defer the potentially expensive profile symbolication to a non-interactive thread
     return fetch(Threads.@spawn _cpu_profile_get_response_and_write_to_file($path; with_pprof=$with_pprof))
 end
@@ -133,12 +131,11 @@ function _start_cpu_profile(n, delay)
 end
 
 function handle_cpu_profile_stop(with_pprof, stage_path = nothing)
-    path = "cpu_profile"
     if stage_path === nothing
         # Defer the potentially expensive profile symbolication to a non-interactive thread
-        return fetch(Threads.@spawn _cpu_profile_get_response($path; with_pprof=$with_pprof))
+        return fetch(Threads.@spawn _cpu_profile_get_response(with_pprof=$with_pprof))
     end
-    path = joinpath(stage_path, "cpu_profile")
+    path = tempname(stage_path; cleanup=false)
     # Defer the potentially expensive profile symbolication to a non-interactive thread
     return fetch(Threads.@spawn _cpu_profile_get_response_and_write_to_file($path; with_pprof=$with_pprof))
 end
@@ -160,17 +157,17 @@ function _cpu_profile_get_response_and_write_to_file(filename; with_pprof::Bool)
     end
 end
 
-function _cpu_profile_get_response(filename; with_pprof::Bool)
+function _cpu_profile_get_response(;with_pprof::Bool)
     if with_pprof
-        prof_name = tempname()
+        prof_name = tempname(;cleanup=false)
         PProf.pprof(out=prof_name, web=false)
         prof_name = "$prof_name.pb.gz"
-        return _http_create_response_with_profile_inlined(read(prof_name), "$filename.pb.gz")
+        return _http_create_response_with_profile_inlined(read(prof_name))
     else
         iobuf = IOBuffer()
         data = Profile.retrieve()
         serialize(iobuf, data)
-        return _http_create_response_with_profile_inlined(iobuf.data, "$filename.profile")
+        return _http_create_response_with_profile_inlined(iobuf.data)
     end
 end
 
@@ -197,7 +194,7 @@ function heap_snapshot_endpoint(req::HTTP.Request)
     file_path = joinpath(tempdir(), "$(getpid())_$(time_ns()).heapsnapshot")
     file_path = Profile.take_heap_snapshot(file_path, all_one)
     @info "Taking heap snapshot from ProfileEndpoints" all_one file_path
-    return _http_create_response_with_profile_inlined(read(file_path), file_path)
+    return _http_create_response_with_profile_inlined(read(file_path))
 end
 
 end  # if isdefined
@@ -264,11 +261,10 @@ function _do_alloc_profile(duration, sample_rate)
 
     Profile.Allocs.@profile sample_rate=sample_rate sleep(duration)
 
-    prof_name = tempname()
+    prof_name = tempname(;cleanup=false)
     PProf.Allocs.pprof(out=prof_name, web=false)
     prof_name = "$prof_name.pb.gz"
-    return _http_create_response_with_profile_inlined(read(prof_name),
-            "allocs_profile-duration=$duration&sample_rate=$sample_rate.pb.gz")
+    return _http_create_response_with_profile_inlined(read(prof_name))
 end
 
 function _start_alloc_profile(sample_rate)
@@ -281,10 +277,10 @@ end
 
 function _stop_alloc_profile()
     Profile.Allocs.stop()
-    prof_name = tempname()
+    prof_name = tempname(;cleanup=false)
     PProf.Allocs.pprof(out=prof_name, web=false)
     prof_name = "$prof_name.pb.gz"
-    return _http_create_response_with_profile_inlined(read(prof_name), "allocs_profile.pb.gz")
+    return _http_create_response_with_profile_inlined(read(prof_name))
 end
 
 end  # if isdefined
@@ -305,10 +301,12 @@ function handle_task_backtraces(stage_path = nothing)
     @static if VERSION < v"1.10.0-DEV.0"
         return HTTP.Response(501, "Task backtraces are only available in Julia 1.10+")
     end
+    local backtrace_file
     if stage_path === nothing
-        stage_path = tempdir()
+        backtrace_file = tempname(;cleanup=false)
+    else
+        backtrace_file = tempname(stage_path; cleanup=false)
     end
-    backtrace_file = joinpath(stage_path, "task_backtraces.txt")
     open(backtrace_file, "w") do io
         redirect_stderr(io) do
             ccall(:jl_print_task_backtraces, Cvoid, ())
