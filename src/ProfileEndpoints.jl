@@ -107,13 +107,11 @@ function _do_cpu_profile(n, delay, duration, with_pprof, stage_path = nothing)
     Profile.clear()
     Profile.init(n, delay)
     Profile.@profile sleep(duration)
-    local path
     if stage_path === nothing
-        path = tempname()
         # Defer the potentially expensive profile symbolication to a non-interactive thread
         return fetch(Threads.@spawn _cpu_profile_get_response(with_pprof=$with_pprof))
     end
-    path = tempname(stage_path)
+    path = tempname(stage_path; cleanup=false)
     # Defer the potentially expensive profile symbolication to a non-interactive thread
     return fetch(Threads.@spawn _cpu_profile_get_response_and_write_to_file($path; with_pprof=$with_pprof))
 end
@@ -133,13 +131,11 @@ function _start_cpu_profile(n, delay)
 end
 
 function handle_cpu_profile_stop(with_pprof, stage_path = nothing)
-    local path
     if stage_path === nothing
-        path = tempname()
         # Defer the potentially expensive profile symbolication to a non-interactive thread
         return fetch(Threads.@spawn _cpu_profile_get_response(with_pprof=$with_pprof))
     end
-    path = tempname(stage_path)
+    path = tempname(stage_path; cleanup=false)
     # Defer the potentially expensive profile symbolication to a non-interactive thread
     return fetch(Threads.@spawn _cpu_profile_get_response_and_write_to_file($path; with_pprof=$with_pprof))
 end
@@ -163,7 +159,7 @@ end
 
 function _cpu_profile_get_response(;with_pprof::Bool)
     if with_pprof
-        prof_name = tempname()
+        prof_name = tempname(;cleanup=false)
         PProf.pprof(out=prof_name, web=false)
         prof_name = "$prof_name.pb.gz"
         return _http_create_response_with_profile_inlined(read(prof_name))
@@ -265,7 +261,7 @@ function _do_alloc_profile(duration, sample_rate)
 
     Profile.Allocs.@profile sample_rate=sample_rate sleep(duration)
 
-    prof_name = tempname()
+    prof_name = tempname(;cleanup=false)
     PProf.Allocs.pprof(out=prof_name, web=false)
     prof_name = "$prof_name.pb.gz"
     return _http_create_response_with_profile_inlined(read(prof_name))
@@ -281,7 +277,7 @@ end
 
 function _stop_alloc_profile()
     Profile.Allocs.stop()
-    prof_name = tempname()
+    prof_name = tempname(;cleanup=false)
     PProf.Allocs.pprof(out=prof_name, web=false)
     prof_name = "$prof_name.pb.gz"
     return _http_create_response_with_profile_inlined(read(prof_name))
@@ -307,9 +303,9 @@ function handle_task_backtraces(stage_path = nothing)
     end
     local backtrace_file
     if stage_path === nothing
-        backtrace_file = tempname()
+        backtrace_file = tempname(;cleanup=false)
     else
-        backtrace_file = tempname(stage_path)
+        backtrace_file = tempname(stage_path; cleanup=false)
     end
     open(backtrace_file, "w") do io
         redirect_stderr(io) do
