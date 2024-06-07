@@ -21,8 +21,7 @@ const url = "http://127.0.0.1:$port"
         done = Threads.Atomic{Bool}(false)
         # Schedule some work that's known to be expensive, to profile it
         workload() = @async begin
-            for _ in 1:1000
-                if done[] return end
+            while !done[]
                 InteractiveUtils.peakflops(1024)
                 yield()  # yield to allow the tests to run
             end
@@ -86,6 +85,7 @@ const url = "http://127.0.0.1:$port"
             fname = read(IOBuffer(req.body), String)
             @info "filename: $fname"
             @test isfile(fname)
+            done[] = true
         end
 
         @testset "debug endpoint cpu profile start/end" begin
@@ -216,8 +216,7 @@ const url = "http://127.0.0.1:$port"
         done = Threads.Atomic{Bool}(false)
         # Schedule some work that's known to be expensive, to profile it
         workload() = @async begin
-            for _ in 1:200
-                if done[] return end
+            while !done[]
                 global a = [[] for i in 1:1000]
                 yield()  # yield to allow the tests to run
             end
