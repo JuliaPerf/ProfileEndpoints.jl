@@ -23,7 +23,7 @@ const url = "http://127.0.0.1:$port"
         workload() = @async begin
             for _ in 1:1000
                 if done[] return end
-                InteractiveUtils.peakflops(1024, ntrials=1)
+                InteractiveUtils.peakflops(1024)
                 yield()  # yield to allow the tests to run
             end
         end
