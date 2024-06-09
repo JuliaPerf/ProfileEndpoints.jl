@@ -97,12 +97,12 @@ function cpu_profile_stop_endpoint(req::HTTP.Request)
     return handle_cpu_profile_stop(with_pprof)
 end
 
-function handle_cpu_profile(n, delay, duration, with_pprof, stage_path = nothing)
+function handle_cpu_profile(n, delay, duration, with_pprof, stage_path = nothing, files_created = nothing)
     # Run the profile
-    return _do_cpu_profile(n, delay, duration, with_pprof, stage_path)
+    return _do_cpu_profile(n, delay, duration, with_pprof, stage_path, files_created)
 end
 
-function _do_cpu_profile(n, delay, duration, with_pprof, stage_path = nothing)
+function _do_cpu_profile(n, delay, duration, with_pprof, stage_path = nothing, files_created = nothing)
     @info "Starting CPU Profiling from ProfileEndpoints with configuration:" n delay duration
     Profile.clear()
     Profile.init(n, delay)
@@ -113,7 +113,7 @@ function _do_cpu_profile(n, delay, duration, with_pprof, stage_path = nothing)
     end
     path = tempname(stage_path; cleanup=false)
     # Defer the potentially expensive profile symbolication to a non-interactive thread
-    return fetch(Threads.@spawn _cpu_profile_get_response_and_write_to_file($path; with_pprof=$with_pprof))
+    return fetch(Threads.@spawn _cpu_profile_get_response_and_write_to_file($path, $files_created; with_pprof=$with_pprof))
 end
 
 function handle_cpu_profile_start(n, delay)
@@ -130,26 +130,32 @@ function _start_cpu_profile(n, delay)
     return resp
 end
 
-function handle_cpu_profile_stop(with_pprof, stage_path = nothing)
+function handle_cpu_profile_stop(with_pprof, stage_path = nothing, files_created = nothing)
     if stage_path === nothing
         # Defer the potentially expensive profile symbolication to a non-interactive thread
         return fetch(Threads.@spawn _cpu_profile_get_response(with_pprof=$with_pprof))
     end
     path = tempname(stage_path; cleanup=false)
     # Defer the potentially expensive profile symbolication to a non-interactive thread
-    return fetch(Threads.@spawn _cpu_profile_get_response_and_write_to_file($path; with_pprof=$with_pprof))
+    return fetch(Threads.@spawn _cpu_profile_get_response_and_write_to_file($path, $files_created; with_pprof=$with_pprof))
 end
 
-function _cpu_profile_get_response_and_write_to_file(filename; with_pprof::Bool)
+function _cpu_profile_get_response_and_write_to_file(filename, files_created; with_pprof::Bool)
     if with_pprof
         PProf.pprof(out=filename, web=false)
         filename = "$filename.pb.gz"
+        if files_created !== nothing
+            push!(files_created, filename)
+        end
         return _http_create_response_with_profile_as_file(filename)
     else
         iobuf = IOBuffer()
         data = Profile.retrieve()
         serialize(iobuf, data)
         filename = "$filename.profile"
+        if files_created !== nothing
+            push!(files_created, filename)
+        end
         open(filename, "w") do io
             write(io, iobuf.data)
         end
@@ -296,7 +302,7 @@ function task_backtraces_endpoint(req::HTTP.Request)
     return handle_task_backtraces()
 end
 
-function handle_task_backtraces(stage_path = nothing)
+function handle_task_backtraces(stage_path = nothing, files_created = nothing)
     @info "Starting Task Backtrace Profiling from ProfileEndpoints"
     @static if VERSION < v"1.10.0-DEV.0"
         return HTTP.Response(501, "Task backtraces are only available in Julia 1.10+")
@@ -313,6 +319,9 @@ function handle_task_backtraces(stage_path = nothing)
             ccall(:jl_print_task_backtraces, Cvoid, ())
         end
     end
+    if files_created !== nothing
+        push!(files_created, backtrace_file)
+    end
     return HTTP.Response(200, backtrace_file)
 end
 
@@ -320,21 +329,12 @@ end
 ### Profile removal
 ###
 
-function has_profile_extension(file)
-    return endswith(file, ".profile") || endswith(file, ".pb.gz") || endswith(file, ".task_backtraces")
-end
-
-function handle_profile_removal(profile_file, stage_path = nothing)
-    if stage_path !== nothing
-        profile_file = joinpath(stage_path, profile_file)
+function handle_profile_removal(files_created)
+    for file in files_created
+        @info "Removing profile: $file"
+        delete!(files_created, file)
+        rm(file)
     end
-    if !has_profile_extension(profile_file)
-        return HTTP.Response(400, "Profile file must have a `.profile`, `.pb.gz`, or `.task_backtraces` extension")
-    end
-    if !isfile(profile_file)
-        return HTTP.Response(400, "Profile file not found")
-    end
-    rm(profile_file)
     return HTTP.Response(200, "All profiles removed")
 end
 
@@ -350,6 +350,7 @@ function debug_profile_endpoint_with_stage_path(stage_path = nothing)
     if stage_path === nothing
         stage_path = tempdir()
     end
+    files_created = Set{String}()
     function debug_profile_endpoint(req::HTTP.Request)
         @info "Debugging profile endpoint"
         json_body = HTTP.body(req)
@@ -367,7 +368,8 @@ function debug_profile_endpoint_with_stage_path(stage_path = nothing)
                 parse(Float64, get(body, "delay", default_delay())),
                 parse(Float64, get(body, "duration", default_duration())),
                 parse(Bool, get(body, "pprof", default_pprof())),
-                stage_path
+                stage_path,
+                files_created
             )
         elseif profile_type == "cpu_profile_start"
             return handle_cpu_profile_start(
@@ -377,16 +379,13 @@ function debug_profile_endpoint_with_stage_path(stage_path = nothing)
         elseif profile_type == "cpu_profile_stop"
             return handle_cpu_profile_stop(
                 parse(Bool, get(body, "pprof", default_pprof())),
-                stage_path
+                stage_path,
+                files_created
             )
         elseif profile_type == "task_backtraces"
-            return handle_task_backtraces(stage_path)
-        elseif profile_type == "remove_profile"
-            if !haskey(body, "profile_file")
-                return HTTP.Response(400, "Need to provide a `profile_file` argument in the JSON body")
-            end
-            profile_file = body["profile_file"]
-            return handle_profile_removal(profile_file, stage_path)
+            return handle_task_backtraces(stage_path, files_created)
+        elseif profile_type == "remove_all_profiles"
+            return handle_profile_removal(files_created)
         else
             return HTTP.Response(400, "Unknown profile_type: $profile_type")
         end

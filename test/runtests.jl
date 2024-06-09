@@ -144,9 +144,10 @@ const url = "http://127.0.0.1:$port"
             @info "filename: $fname"
             @test isfile(fname)
             headers = ["Content-Type" => "application/json"]
-            payload = JSON3.write(Dict("profile_type" => "remove_profile", "profile_file" => fname))
+            payload = JSON3.write(Dict("profile_type" => "remove_all_profiles"))
             req = HTTP.post("$url/debug_engine", headers, payload)
             @test req.status == 200
+            @test !isfile(fname)
         end
     end
 
