@@ -145,7 +145,10 @@ function _cpu_profile_get_response_and_write_to_file(filename, files_created; wi
         PProf.pprof(out=filename, web=false)
         filename = "$filename.pb.gz"
         if files_created !== nothing
-            push!(files_created, filename)
+            # Write the filename into the files_create file, don't forget a newline
+            open(files_created, "a") do io
+                write(io, "$filename\n")
+            end
         end
         return _http_create_response_with_profile_as_file(filename)
     else
@@ -154,7 +157,10 @@ function _cpu_profile_get_response_and_write_to_file(filename, files_created; wi
         serialize(iobuf, data)
         filename = "$filename.profile"
         if files_created !== nothing
-            push!(files_created, filename)
+            # Write the filename into the files_create file, don't forget a newline
+            open(files_created, "a") do io
+                write(io, "$filename\n")
+            end
         end
         open(filename, "w") do io
             write(io, iobuf.data)
@@ -320,7 +326,10 @@ function handle_task_backtraces(stage_path = nothing, files_created = nothing)
         end
     end
     if files_created !== nothing
-        push!(files_created, backtrace_file)
+        # Write the filename into the files_create file, don't forget a newline
+        open(files_created, "a") do io
+            write(io, "$backtrace_file\n")
+        end
     end
     return HTTP.Response(200, backtrace_file)
 end
@@ -330,10 +339,19 @@ end
 ###
 
 function handle_profile_removal(files_created)
-    for file in files_created
-        @info "Removing profile: $file"
-        delete!(files_created, file)
-        rm(file)
+    @info "Removing all profiles from ProfileEndpoints"
+    if files_created !== nothing
+        # Iterate over the files_created file and remove each file
+        open(files_created, "r") do io
+            for line in eachline(io)
+                @info "Removing profile: $line"
+                rm(line)
+            end
+        end
+        # Clear the files_created file
+        open(files_created, "w") do io
+            write(io, "")
+        end
     end
     return HTTP.Response(200, "All profiles removed")
 end
@@ -350,7 +368,13 @@ function debug_profile_endpoint_with_stage_path(stage_path = nothing)
     if stage_path === nothing
         stage_path = tempdir()
     end
-    files_created = Set{String}()
+    # Create a files_created file to keep track of all the files created
+    files_created = joinpath(stage_path, "files_created.txt")
+    if !isfile(files_created)
+        open(files_created, "w") do io
+            write(io, "")
+        end
+    end
     function debug_profile_endpoint(req::HTTP.Request)
         @info "Debugging profile endpoint"
         json_body = HTTP.body(req)
