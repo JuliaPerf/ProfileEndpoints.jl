@@ -185,16 +185,33 @@ function heap_snapshot_endpoint(::HTTP.Request)
     return HTTP.Response(501, "You must use a build of Julia (1.9+) that supports heap snapshots.")
 end
 
+function handle_heap_snapshot(all_one, stage_path = nothing)
+    return HTTP.Response(501, "You must use a build of Julia (1.9+) that supports heap snapshots.")
+end
+
 else
 
 function heap_snapshot_endpoint(req::HTTP.Request)
     uri = HTTP.URI(req.target)
     qp = HTTP.queryparams(uri)
     all_one = parse(Bool, get(qp, "all_one", default_heap_all_one()))
-    file_path = joinpath(tempdir(), "$(getpid())_$(time_ns()).heapsnapshot")
-    file_path = Profile.take_heap_snapshot(file_path, all_one)
+    return handle_heap_snapshot(all_one)
+end
+
+function handle_heap_snapshot(all_one, stage_path = nothing)
+    local file_path
+    if stage_path === nothing
+        file_path = joinpath(tempdir(), "$(getpid())_$(time_ns()).heapsnapshot")
+    else
+        file_path = joinpath(stage_path, "$(getpid())_$(time_ns()).heapsnapshot")
+    end
     @info "Taking heap snapshot from ProfileEndpoints" all_one file_path
-    return _http_create_response_with_profile_inlined(read(file_path))
+    file_path = Profile.take_heap_snapshot(file_path, all_one)
+    if stage_path === nothing
+        return _http_create_response_with_profile_inlined(read(file_path))
+    else
+        return _http_create_response_with_profile_as_file(file_path)
+    end
 end
 
 end  # if isdefined
@@ -228,6 +245,12 @@ for f in (:allocations_profile_endpoint, :allocations_start_endpoint, :allocatio
     end
 end
 
+for f in (:handle_alloc_profile, :handle_alloc_profile_start, :handle_alloc_profile_stop)
+    @eval function $f(::HTTP.Request)
+        return HTTP.Response(501, "You must use a build of Julia (1.8+) and PProf that support Allocations profiling.")
+    end
+end
+
 else
 
 function allocations_profile_endpoint(req::HTTP.Request)
@@ -239,35 +262,41 @@ function allocations_profile_endpoint(req::HTTP.Request)
     end
     sample_rate = convert(Float64, parse(Float64, get(qp, "sample_rate", default_alloc_sample_rate())))
     duration = parse(Float64, get(qp, "duration", default_duration()))
-    return _do_alloc_profile(duration, sample_rate)
+    return handle_alloc_profile(duration, sample_rate)
 end
 
 function allocations_start_endpoint(req::HTTP.Request)
     uri = HTTP.URI(req.target)
     qp = HTTP.queryparams(uri)
     sample_rate = convert(Float64, parse(Float64, get(qp, "sample_rate", default_alloc_sample_rate())))
-    return _start_alloc_profile(sample_rate)
+    return handle_alloc_profile_start(sample_rate)
 end
 
 function allocations_stop_endpoint(req::HTTP.Request)
     # Defer the potentially expensive profile symbolication to a non-interactive thread
-    return fetch(Threads.@spawn _stop_alloc_profile())
+    return fetch(Threads.@spawn handle_alloc_profile_stop())
 end
 
-function _do_alloc_profile(duration, sample_rate)
+function handle_alloc_profile(duration, sample_rate, stage_path = nothing)
     @info "Starting allocation Profiling from ProfileEndpoints with configuration:" duration sample_rate
-
     Profile.Allocs.clear()
-
     Profile.Allocs.@profile sample_rate=sample_rate sleep(duration)
-
-    prof_name = tempname(;cleanup=false)
+    local prof_name
+    if stage_path === nothing
+        prof_name = tempname(;cleanup=false)
+    else
+        prof_name = tempname(stage_path; cleanup=false)
+    end
     PProf.Allocs.pprof(out=prof_name, web=false)
     prof_name = "$prof_name.pb.gz"
-    return _http_create_response_with_profile_inlined(read(prof_name))
+    if stage_path === nothing
+        return _http_create_response_with_profile_inlined(read(prof_name))
+    else
+        return _http_create_response_with_profile_as_file(prof_name)
+    end
 end
 
-function _start_alloc_profile(sample_rate)
+function handle_alloc_profile_start(sample_rate)
     @info "Starting allocation Profiling from ProfileEndpoints with configuration:" sample_rate
     resp = HTTP.Response(200, "Allocation profiling started.")
     Profile.Allocs.clear()
@@ -275,12 +304,21 @@ function _start_alloc_profile(sample_rate)
     return resp
 end
 
-function _stop_alloc_profile()
+function handle_alloc_profile_stop(stage_path = nothing)
     Profile.Allocs.stop()
-    prof_name = tempname(;cleanup=false)
+    local prof_name
+    if stage_path === nothing
+        prof_name = tempname(;cleanup=false)
+    else
+        prof_name = tempname(stage_path; cleanup=false)
+    end
     PProf.Allocs.pprof(out=prof_name, web=false)
     prof_name = "$prof_name.pb.gz"
-    return _http_create_response_with_profile_inlined(read(prof_name))
+    if stage_path === nothing
+        return _http_create_response_with_profile_inlined(read(prof_name))
+    else
+        return _http_create_response_with_profile_as_file(prof_name)
+    end
 end
 
 end  # if isdefined
@@ -356,6 +394,23 @@ function debug_profile_endpoint_with_stage_path(stage_path = nothing)
                 parse(Bool, get(body, "pprof", default_pprof())),
                 stage_path
             )
+        elseif profile_type == "heap_snapshot"
+            return handle_heap_snapshot(
+                parse(Bool, get(body, "all_one", default_heap_all_one())),
+                stage_path
+            )
+        elseif profile_type == "allocs_profile"
+            return handle_alloc_profile(
+                parse(Float64, get(body, "duration", default_duration())),
+                convert(Float64, parse(Float64, get(body, "sample_rate", default_alloc_sample_rate()))),
+                stage_path
+            )
+        elseif profile_type == "allocs_profile_start"
+            return handle_alloc_profile_start(
+                convert(Float64, parse(Float64, get(body, "sample_rate", default_alloc_sample_rate())))
+            )
+        elseif profile_type == "allocs_profile_stop"
+            return handle_alloc_profile_stop(stage_path)
         elseif profile_type == "task_backtraces"
             return handle_task_backtraces(stage_path)
         else

@@ -12,7 +12,7 @@ precompile(allocations_profile_endpoint, (HTTP.Request,)) || error("precompilati
 precompile(allocations_start_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
 precompile(allocations_stop_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
 if isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs)
-    precompile(_do_alloc_profile, (Float64,Float64,)) || error("precompilation of package functions is not supposed to fail")
-    precompile(_start_alloc_profile, (Float64,)) || error("precompilation of package functions is not supposed to fail")
-    precompile(_stop_alloc_profile, ()) || error("precompilation of package functions is not supposed to fail")
+    precompile(handle_alloc_profile, (Float64,Float64,)) || error("precompilation of package functions is not supposed to fail")
+    precompile(handle_alloc_profile_start, (Float64,)) || error("precompilation of package functions is not supposed to fail")
+    precompile(handle_alloc_profile_stop, ()) || error("precompilation of package functions is not supposed to fail")
 end

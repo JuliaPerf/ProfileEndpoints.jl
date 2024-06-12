@@ -123,6 +123,49 @@ const url = "http://127.0.0.1:$port"
             @test isfile(fname)
         end
 
+        @testset "Debug endpoint heap snapshot" begin
+            @static if isdefined(Profile, :take_heap_snapshot)
+                headers = ["Content-Type" => "application/json"]
+                payload = JSON3.write(Dict("profile_type" => "heap_snapshot"))
+                req = HTTP.post("$url/debug_engine", headers, payload)
+                @test req.status == 200
+                fname = read(IOBuffer(req.body), String)
+                @info "filename: $fname"
+                @test isfile(fname)
+            end
+        end
+
+        @testset "Debug endpoint allocation profile" begin
+            @static if isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs)
+                headers = ["Content-Type" => "application/json"]
+                payload = JSON3.write(Dict("profile_type" => "allocs_profile"))
+                req = HTTP.post("$url/debug_engine", headers, payload)
+                @test req.status == 200
+                fname = read(IOBuffer(req.body), String)
+                @info "filename: $fname"
+                @test isfile(fname)
+            end
+        end
+
+        @testset "Debug endpoint allocation profile start/stop" begin
+            @static if isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs)
+                headers = ["Content-Type" => "application/json"]
+                payload = JSON3.write(Dict("profile_type" => "allocs_profile_start"))
+                req = HTTP.post("$url/debug_engine", headers, payload)
+                @test req.status == 200
+                @test String(req.body) == "Allocation profiling started."
+
+                sleep(3)  # Allow workload to run a while before we stop profiling.
+
+                payload = JSON3.write(Dict("profile_type" => "allocs_profile_stop"))
+                req = HTTP.post("$url/debug_engine", headers, payload)
+                @test req.status == 200
+                fname = read(IOBuffer(req.body), String)
+                @info "filename: $fname"
+                @test isfile(fname)
+            end
+        end
+
         @testset "Debug endpoint task backtraces" begin
             @static if VERSION >= v"1.10.0-DEV.0"
                 headers = ["Content-Type" => "application/json"]
