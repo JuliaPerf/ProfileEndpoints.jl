@@ -6,6 +6,7 @@ using Test
 
 import InteractiveUtils
 import HTTP
+import JSON3
 import Profile
 import PProf
 
@@ -72,6 +73,66 @@ const url = "http://127.0.0.1:$port"
             # TODO: actually parse the profile
             data = read(IOBuffer(req.body), String)
             @test length(data) > 100
+        end
+
+        @testset "debug endpoint cpu profile" begin
+            done[] = false
+            t = workload()
+            headers = ["Content-Type" => "application/json"]
+            payload = JSON3.write(Dict("profile_type" => "cpu_profile"))
+            req = HTTP.post("$url/debug_engine", headers, payload)
+            @test req.status == 200
+            fname = read(IOBuffer(req.body), String)
+            @info "filename: $fname"
+            @test isfile(fname)
+        end
+
+        @testset "debug endpoint cpu profile start/end" begin
+            done[] = false
+            t = workload()
+            # JSON payload should contain profile_type
+            headers = ["Content-Type" => "application/json"]
+            payload = JSON3.write(Dict("profile_type" => "cpu_profile_start"))
+            req = HTTP.post("$url/debug_engine", headers, payload)
+            @test req.status == 200
+            @test String(req.body) == "CPU profiling started."
+
+            sleep(3)  # Allow workload to run a while before we stop profiling.
+
+            payload = JSON3.write(Dict("profile_type" => "cpu_profile_stop"))
+            req = HTTP.post("$url/debug_engine", headers, payload)
+            @test req.status == 200
+            fname = read(IOBuffer(req.body), String)
+            @info "filename: $fname"
+            @test isfile(fname)
+
+            @info "Finished `debug profile_start/stop` tests, waiting for peakflops workload to finish."
+            done[] = true
+            wait(t)  # handle errors
+
+            # We retrive data via PProf directly if `pprof=true`; make sure that path's tested.
+            # This second call to `profile_stop` should still return the profile, even though
+            # the profiler is already stopped, as it's `profile_start` that calls `clear()`.
+            payload = JSON3.write(Dict("profile_type" => "cpu_profile_stop", "pprof" => "true"))
+            req = HTTP.post("$url/debug_engine", headers, payload)
+            @test req.status == 200
+            # Test that there's something here
+            # TODO: actually parse the profile
+            fname = read(IOBuffer(req.body), String)
+            @info "filename: $fname"
+            @test isfile(fname)
+        end
+
+        @testset "Debug endpoint task backtraces" begin
+            @static if VERSION >= v"1.10.0-DEV.0"
+                headers = ["Content-Type" => "application/json"]
+                payload = JSON3.write(Dict("profile_type" => "task_backtraces"))
+                req = HTTP.post("$url/debug_engine", headers, payload)
+                @test req.status == 200
+                fname = read(IOBuffer(req.body), String)
+                @info "filename: $fname"
+                @test isfile(fname)
+            end
         end
     end
 
@@ -151,6 +212,20 @@ const url = "http://127.0.0.1:$port"
             @info "Finished `allocs_profile_stop` tests, waiting for workload to finish."
             done[] = true
             wait(t)  # handle errors
+        end
+    end
+
+    @testset "task backtraces" begin
+        @testset "task_backtraces endpoint" begin
+            @static if VERSION >= v"1.10.0-DEV.0"
+                req = HTTP.get("$url/task_backtraces", retry=false, status_exception=false)
+                @test req.status == 200
+                @test length(req.body) > 0
+
+                # Test whether the profile returned a valid file
+                data = read(IOBuffer(req.body), String)
+                @test isfile(data)
+            end
         end
     end
 

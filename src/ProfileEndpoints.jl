@@ -1,6 +1,7 @@
 module ProfileEndpoints
 
 import HTTP
+import JSON3
 import Profile
 import PProf
 
@@ -21,11 +22,15 @@ using Serialization: serialize
 #
 #----------------------------------------------------------
 
-function _http_response(binary_data, filename)
+function _http_create_response_with_profile_inlined(binary_data)
     return HTTP.Response(200, [
         "Content-Type" => "application/octet-stream"
-        "Content-Disposition" => "attachment; filename=$(repr(filename))"
     ], body = binary_data)
+end
+
+function _http_create_response_with_profile_as_file(filename)
+    @info "Returning path of profile: $filename"
+    return HTTP.Response(200, filename)
 end
 
 ###
@@ -68,23 +73,19 @@ function cpu_profile_endpoint(req::HTTP.Request)
         @info "TODO: interactive HTML input page"
         return HTTP.Response(400, cpu_profile_error_message())
     end
-
-    # Run the profile
     n = convert(Int, parse(Float64, get(qp, "n", default_n())))
     delay = parse(Float64, get(qp, "delay", default_delay()))
     duration = parse(Float64, get(qp, "duration", default_duration()))
     with_pprof = parse(Bool, get(qp, "pprof", default_pprof()))
-    return _do_cpu_profile(n, delay, duration, with_pprof)
+    return handle_cpu_profile(n, delay, duration, with_pprof)
 end
 
 function cpu_profile_start_endpoint(req::HTTP.Request)
     uri = HTTP.URI(req.target)
     qp = HTTP.queryparams(uri)
-
-    # Run the profile
     n = convert(Int, parse(Float64, get(qp, "n", default_n())))
     delay = parse(Float64, get(qp, "delay", default_delay()))
-    return _start_cpu_profile(n, delay)
+    return handle_cpu_profile_start(n, delay)
 end
 
 function cpu_profile_stop_endpoint(req::HTTP.Request)
@@ -93,17 +94,31 @@ function cpu_profile_stop_endpoint(req::HTTP.Request)
     uri = HTTP.URI(req.target)
     qp = HTTP.queryparams(uri)
     with_pprof = parse(Bool, get(qp, "pprof", default_pprof()))
-    filename = "cpu_profile"
-    return _cpu_profile_response(filename; with_pprof)
+    return handle_cpu_profile_stop(with_pprof)
 end
 
-function _do_cpu_profile(n, delay, duration, with_pprof)
+function handle_cpu_profile(n, delay, duration, with_pprof, stage_path = nothing)
+    # Run the profile
+    return _do_cpu_profile(n, delay, duration, with_pprof, stage_path)
+end
+
+function _do_cpu_profile(n, delay, duration, with_pprof, stage_path = nothing)
     @info "Starting CPU Profiling from ProfileEndpoints with configuration:" n delay duration
     Profile.clear()
     Profile.init(n, delay)
     Profile.@profile sleep(duration)
-    filename = "cpu_profile-duration=$duration&delay=$delay&n=$n"
-    return _cpu_profile_response(filename; with_pprof)
+    if stage_path === nothing
+        # Defer the potentially expensive profile symbolication to a non-interactive thread
+        return fetch(Threads.@spawn _cpu_profile_get_response(with_pprof=$with_pprof))
+    end
+    path = tempname(stage_path; cleanup=false)
+    # Defer the potentially expensive profile symbolication to a non-interactive thread
+    return fetch(Threads.@spawn _cpu_profile_get_response_and_write_to_file($path; with_pprof=$with_pprof))
+end
+
+function handle_cpu_profile_start(n, delay)
+    # Run the profile
+    return _start_cpu_profile(n, delay)
 end
 
 function _start_cpu_profile(n, delay)
@@ -115,17 +130,44 @@ function _start_cpu_profile(n, delay)
     return resp
 end
 
-function _cpu_profile_response(filename; with_pprof::Bool)
+function handle_cpu_profile_stop(with_pprof, stage_path = nothing)
+    if stage_path === nothing
+        # Defer the potentially expensive profile symbolication to a non-interactive thread
+        return fetch(Threads.@spawn _cpu_profile_get_response(with_pprof=$with_pprof))
+    end
+    path = tempname(stage_path; cleanup=false)
+    # Defer the potentially expensive profile symbolication to a non-interactive thread
+    return fetch(Threads.@spawn _cpu_profile_get_response_and_write_to_file($path; with_pprof=$with_pprof))
+end
+
+function _cpu_profile_get_response_and_write_to_file(filename; with_pprof::Bool)
     if with_pprof
-        prof_name = tempname()
-        PProf.pprof(out=prof_name, web=false)
-        prof_name = "$prof_name.pb.gz"
-        return _http_response(read(prof_name), "$filename.pb.gz")
+        PProf.pprof(out=filename, web=false)
+        filename = "$filename.pb.gz"
+        return _http_create_response_with_profile_as_file(filename)
     else
         iobuf = IOBuffer()
         data = Profile.retrieve()
         serialize(iobuf, data)
-        return _http_response(take!(iobuf), "$filename.prof.bin")
+        filename = "$filename.profile"
+        open(filename, "w") do io
+            write(io, iobuf.data)
+        end
+        return _http_create_response_with_profile_as_file(filename)
+    end
+end
+
+function _cpu_profile_get_response(;with_pprof::Bool)
+    if with_pprof
+        prof_name = tempname(;cleanup=false)
+        PProf.pprof(out=prof_name, web=false)
+        prof_name = "$prof_name.pb.gz"
+        return _http_create_response_with_profile_inlined(read(prof_name))
+    else
+        iobuf = IOBuffer()
+        data = Profile.retrieve()
+        serialize(iobuf, data)
+        return _http_create_response_with_profile_inlined(iobuf.data)
     end
 end
 
@@ -152,7 +194,7 @@ function heap_snapshot_endpoint(req::HTTP.Request)
     file_path = joinpath(tempdir(), "$(getpid())_$(time_ns()).heapsnapshot")
     file_path = Profile.take_heap_snapshot(file_path, all_one)
     @info "Taking heap snapshot from ProfileEndpoints" all_one file_path
-    return _http_response(read(file_path), file_path)
+    return _http_create_response_with_profile_inlined(read(file_path))
 end
 
 end  # if isdefined
@@ -208,7 +250,8 @@ function allocations_start_endpoint(req::HTTP.Request)
 end
 
 function allocations_stop_endpoint(req::HTTP.Request)
-    return _stop_alloc_profile()
+    # Defer the potentially expensive profile symbolication to a non-interactive thread
+    return fetch(Threads.@spawn _stop_alloc_profile())
 end
 
 function _do_alloc_profile(duration, sample_rate)
@@ -218,11 +261,10 @@ function _do_alloc_profile(duration, sample_rate)
 
     Profile.Allocs.@profile sample_rate=sample_rate sleep(duration)
 
-    prof_name = tempname()
+    prof_name = tempname(;cleanup=false)
     PProf.Allocs.pprof(out=prof_name, web=false)
     prof_name = "$prof_name.pb.gz"
-    return _http_response(read(prof_name),
-            "allocs_profile-duration=$duration&sample_rate=$sample_rate.pb.gz")
+    return _http_create_response_with_profile_inlined(read(prof_name))
 end
 
 function _start_alloc_profile(sample_rate)
@@ -235,21 +277,100 @@ end
 
 function _stop_alloc_profile()
     Profile.Allocs.stop()
-    prof_name = tempname()
+    prof_name = tempname(;cleanup=false)
     PProf.Allocs.pprof(out=prof_name, web=false)
     prof_name = "$prof_name.pb.gz"
-    return _http_response(read(prof_name), "allocs_profile.pb.gz")
+    return _http_create_response_with_profile_inlined(read(prof_name))
 end
 
 end  # if isdefined
 
 ###
+### Task backtraces
+###
+
+function task_backtraces_endpoint(req::HTTP.Request)
+    @static if VERSION < v"1.10.0-DEV.0"
+        return HTTP.Response(501, "Task backtraces are only available in Julia 1.10+")
+    end
+    return handle_task_backtraces()
+end
+
+function handle_task_backtraces(stage_path = nothing)
+    @info "Starting Task Backtrace Profiling from ProfileEndpoints"
+    @static if VERSION < v"1.10.0-DEV.0"
+        return HTTP.Response(501, "Task backtraces are only available in Julia 1.10+")
+    end
+    local backtrace_file
+    if stage_path === nothing
+        backtrace_file = tempname(;cleanup=false)
+    else
+        backtrace_file = tempname(stage_path; cleanup=false)
+    end
+    open(backtrace_file, "w") do io
+        redirect_stderr(io) do
+            ccall(:jl_print_task_backtraces, Cvoid, ())
+        end
+    end
+    return HTTP.Response(200, backtrace_file)
+end
+
+###
+### Debug super-endpoint
+###
+
+debug_super_endpoint_error_message() = """Need to provide at least a `profile_type` argument in the JSON body"""
+
+function debug_profile_endpoint_with_stage_path(stage_path = nothing)
+    # If a stage has not been assigned, create a temporary directory to avoid
+    # writing to the current working directory
+    if stage_path === nothing
+        stage_path = tempdir()
+    end
+    function debug_profile_endpoint(req::HTTP.Request)
+        @info "Debugging profile endpoint"
+        json_body = HTTP.body(req)
+        if isempty(json_body)
+            return HTTP.Response(400, debug_super_endpoint_error_message())
+        end
+        body = JSON3.read(json_body)
+        if !haskey(body, "profile_type")
+            return HTTP.Response(400, debug_super_endpoint_error_message())
+        end
+        profile_type = body["profile_type"]
+        if profile_type == "cpu_profile"
+            return handle_cpu_profile(
+                convert(Int, parse(Float64, get(body, "n", default_n()))),
+                parse(Float64, get(body, "delay", default_delay())),
+                parse(Float64, get(body, "duration", default_duration())),
+                parse(Bool, get(body, "pprof", default_pprof())),
+                stage_path
+            )
+        elseif profile_type == "cpu_profile_start"
+            return handle_cpu_profile_start(
+                convert(Int, parse(Float64, get(body, "n", default_n()))),
+                parse(Float64, get(body, "delay", default_delay()))
+            )
+        elseif profile_type == "cpu_profile_stop"
+            return handle_cpu_profile_stop(
+                parse(Bool, get(body, "pprof", default_pprof())),
+                stage_path
+            )
+        elseif profile_type == "task_backtraces"
+            return handle_task_backtraces(stage_path)
+        else
+            return HTTP.Response(400, "Unknown profile_type: $profile_type")
+        end
+    end
+    return debug_profile_endpoint
+end
+
+###
 ### Server
 ###
 
-function serve_profiling_server(;addr="127.0.0.1", port=16825, verbose=false, kw...)
-    verbose >= 0 && @info "Starting HTTP profiling server on port $port"
-    router = HTTP.Router()
+function register_endpoints(router; stage_path = nothing)
+    @info "Registering profiling endpoints"
     HTTP.register!(router, "/profile", cpu_profile_endpoint)
     HTTP.register!(router, "/profile_start", cpu_profile_start_endpoint)
     HTTP.register!(router, "/profile_stop", cpu_profile_stop_endpoint)
@@ -257,31 +378,28 @@ function serve_profiling_server(;addr="127.0.0.1", port=16825, verbose=false, kw
     HTTP.register!(router, "/allocs_profile", allocations_profile_endpoint)
     HTTP.register!(router, "/allocs_profile_start", allocations_start_endpoint)
     HTTP.register!(router, "/allocs_profile_stop", allocations_stop_endpoint)
-    # HTTP.serve! returns listening/serving server object
-    return HTTP.serve!(router, addr, port; verbose, kw...)
+    HTTP.register!(router, "/task_backtraces", task_backtraces_endpoint)
+    debug_profile_endpoint = debug_profile_endpoint_with_stage_path(stage_path)
+    HTTP.register!(router, "/debug_engine", debug_profile_endpoint)
+end
+
+function serve_profiling_server(;addr="127.0.0.1", port=16825, verbose=false, stage_path = nothing, kw...)
+    if verbose >= 0
+        @info "Starting profiling server on http://$addr:$port"
+    end
+    router = HTTP.Router()
+    register_endpoints(router; stage_path)
+    return HTTP.serve!(router, addr, port; verbose=verbose, kw...)
 end
 
 # Precompile the endpoints as much as possible, so that your /profile attempt doesn't end
 # up profiling compilation!
-function __init__()
-    precompile(serve_profiling_server, ()) || error("precompilation of package functions is not supposed to fail")
-
-    precompile(cpu_profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
-    precompile(cpu_profile_start_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
-    precompile(cpu_profile_stop_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
-    precompile(_do_cpu_profile, (Int,Float64,Float64,Bool)) || error("precompilation of package functions is not supposed to fail")
-    precompile(_start_cpu_profile, (Int,Float64,)) || error("precompilation of package functions is not supposed to fail")
-
-    precompile(heap_snapshot_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
-
-    precompile(allocations_profile_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
-    precompile(allocations_start_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
-    precompile(allocations_stop_endpoint, (HTTP.Request,)) || error("precompilation of package functions is not supposed to fail")
-    if isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs)
-        precompile(_do_alloc_profile, (Float64,Float64,)) || error("precompilation of package functions is not supposed to fail")
-        precompile(_start_alloc_profile, (Float64,)) || error("precompilation of package functions is not supposed to fail")
-        precompile(_stop_alloc_profile, ()) || error("precompilation of package functions is not supposed to fail")
+@static if VERSION < v"1.9" # Before Julia 1.9, precompilation didn't stick if not in __init__
+    function __init__()
+        include(joinpath(pkgdir(ProfileEndpoints), "src", "precompile.jl"))
     end
+else
+    include("precompile.jl")
 end
 
 end # module ProfileEndpoints
