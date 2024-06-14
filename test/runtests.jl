@@ -11,7 +11,8 @@ import Profile
 import PProf
 
 const port = 13423
-const server = ProfileEndpoints.serve_profiling_server(;port=port)
+const stage_path = tempdir()
+const server = ProfileEndpoints.serve_profiling_server(;port=port, stage_path=stage_path)
 const url = "http://127.0.0.1:$port"
 
 @testset "ProfileEndpoints.jl" begin
@@ -175,6 +176,22 @@ const url = "http://127.0.0.1:$port"
                 fname = read(IOBuffer(req.body), String)
                 @info "filename: $fname"
                 @test isfile(fname)
+            end
+        end
+
+        @testset "Debug endpoint task backtraces with subdir" begin
+            @static if VERSION >= v"1.10.0-DEV.0"
+                headers = ["Content-Type" => "application/json"]
+                payload = JSON3.write(Dict("profile_type" => "task_backtraces"))
+                if !isdir(joinpath(stage_path, "foo"))
+                    mkdir(joinpath(stage_path, "foo"))
+                end
+                req = HTTP.post("$url/debug_engine?subdir=foo", headers, payload)
+                @test req.status == 200
+                fname = read(IOBuffer(req.body), String)
+                @info "filename: $fname"
+                @test isfile(fname)
+                @test occursin("foo", fname)
             end
         end
     end
