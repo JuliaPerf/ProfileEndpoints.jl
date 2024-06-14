@@ -375,6 +375,17 @@ function debug_profile_endpoint_with_stage_path(stage_path = nothing)
         if !haskey(body, "profile_type")
             return HTTP.Response(400, debug_super_endpoint_error_message())
         end
+        profile_dir = stage_path
+        # If the query parameter has a subdirectory, append it to the profile directory
+        qp = HTTP.queryparams(HTTP.URI(req.target))
+        if haskey(qp, "subdir")
+            subdir = joinpath(profile_dir, qp["subdir"])
+            if !isdir(subdir)
+                return HTTP.Response(400, "Subdirectory does not exist: $subdir")
+            end
+            @info "Using subdirectory: $subdir"
+            profile_dir = subdir
+        end
         profile_type = body["profile_type"]
         if profile_type == "cpu_profile"
             return handle_cpu_profile(
@@ -382,7 +393,7 @@ function debug_profile_endpoint_with_stage_path(stage_path = nothing)
                 parse(Float64, get(body, "delay", default_delay())),
                 parse(Float64, get(body, "duration", default_duration())),
                 parse(Bool, get(body, "pprof", default_pprof())),
-                stage_path
+                profile_dir
             )
         elseif profile_type == "cpu_profile_start"
             return handle_cpu_profile_start(
@@ -392,27 +403,27 @@ function debug_profile_endpoint_with_stage_path(stage_path = nothing)
         elseif profile_type == "cpu_profile_stop"
             return handle_cpu_profile_stop(
                 parse(Bool, get(body, "pprof", default_pprof())),
-                stage_path
+                profile_dir
             )
         elseif profile_type == "heap_snapshot"
             return handle_heap_snapshot(
                 parse(Bool, get(body, "all_one", default_heap_all_one())),
-                stage_path
+                profile_dir
             )
         elseif profile_type == "allocs_profile"
             return handle_alloc_profile(
                 parse(Float64, get(body, "duration", default_duration())),
                 convert(Float64, parse(Float64, get(body, "sample_rate", default_alloc_sample_rate()))),
-                stage_path
+                profile_dir
             )
         elseif profile_type == "allocs_profile_start"
             return handle_alloc_profile_start(
                 convert(Float64, parse(Float64, get(body, "sample_rate", default_alloc_sample_rate())))
             )
         elseif profile_type == "allocs_profile_stop"
-            return handle_alloc_profile_stop(stage_path)
+            return handle_alloc_profile_stop(profile_dir)
         elseif profile_type == "task_backtraces"
-            return handle_task_backtraces(stage_path)
+            return handle_task_backtraces(profile_dir)
         else
             return HTTP.Response(400, "Unknown profile_type: $profile_type")
         end
