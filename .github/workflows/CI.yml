@@ -23,6 +23,16 @@ jobs:
           - windows-latest
         arch:
           - x64
+        include:
+          - os: macOS-latest
+            arch: aarch64
+            version: 1.6
+          - os: macOS-latest
+            arch: aarch64
+            version: "~1.9.0-0"
+          - os: macOS-latest
+            arch: aarch64
+            version: "nightly"
     steps:
       - uses: actions/checkout@v3
       - uses: julia-actions/setup-julia@v1
