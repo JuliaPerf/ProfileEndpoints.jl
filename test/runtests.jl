@@ -20,7 +20,7 @@ const url = "http://127.0.0.1:$port"
     @testset "CPU profiling" begin
         done = Threads.Atomic{Bool}(false)
         # Schedule some work that's known to be expensive, to profile it
-        workload() = @async begin
+        workload() = Threads.@spawn begin
             while !done[]
                 InteractiveUtils.peakflops(1024)
                 yield()  # yield to allow the tests to run
@@ -215,7 +215,7 @@ const url = "http://127.0.0.1:$port"
     @testset "Allocation profiling" begin
         done = Threads.Atomic{Bool}(false)
         # Schedule some work that's known to be expensive, to profile it
-        workload() = @async begin
+        workload() = Threads.@spawn begin
             while !done[]
                 global a = [[] for i in 1:1000]
                 yield()  # yield to allow the tests to run
