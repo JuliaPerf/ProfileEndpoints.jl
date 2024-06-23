@@ -4,37 +4,34 @@
     @reexport using Serialization
     @reexport using Test
 
-    @reexport import InteractiveUtils
     @reexport import HTTP
     @reexport import JSON3
     @reexport import Profile
     @reexport import PProf
-    using Random
 
-    export port, server, url, workload
+    export port, stage_path, server, url, workload
 
     const port = 13423
-    const server = ProfileEndpoints.serve_profiling_server(;port=port)
+    const stage_path = tempdir()
+    const server = ProfileEndpoints.serve_profiling_server(;port=port, stage_path=stage_path)
     const url = "http://127.0.0.1:$port"
 
     # Schedule some work that's known to be expensive, to profile it
     function workload()
-        done = Ref(false)
-        a = 0
+        shouldstop = Ref(false)
         t = Threads.@spawn begin
-            while !done[]
-                InteractiveUtils.peakflops(1024)
+            while !shouldstop[]
                 global a = [[] for i in 1:1000]
                 yield()
             end
         end
-        return t, done
+        return t, shouldstop
     end
 end
 
 @testitem "CPU profiling" setup=[TestSetup] begin
-    @testset "profile endpoint" begin
-        t, done = workload()
+    @time @testset "profile endpoint" begin
+        t, shouldstop = workload()
         req = HTTP.get("$url/profile?duration=3&pprof=false")
         @test req.status == 200
         @test length(req.body) > 0
@@ -45,12 +42,12 @@ end
         @test lidict isa Dict{UInt64, Vector{Base.StackTraces.StackFrame}}
 
         @info "Finished `profile` tests, waiting for peakflops workload to finish."
-        done[] = true
+        shouldstop[] = true
         wait(t)  # handle errors
     end
 
-    @testset "profile_start/stop endpoints" begin
-        t, done = workload()
+    @time @testset "profile_start/stop endpoints" begin
+        t, shouldstop = workload()
         req = HTTP.get("$url/profile_start")
         @test req.status == 200
         @test String(req.body) == "CPU profiling started."
@@ -65,7 +62,7 @@ end
         @test lidict isa Dict{UInt64, Vector{Base.StackTraces.StackFrame}}
 
         @info "Finished `profile_start/stop` tests, waiting for peakflops workload to finish."
-        done[] = true
+        shouldstop[] = true
         wait(t)  # handle errors
 
         # We retrive data via PProf directly if `pprof=true`; make sure that path's tested.
@@ -79,8 +76,8 @@ end
         @test length(data) > 100
     end
 
-    @testset "debug endpoint cpu profile" begin
-        t, done = workload()
+    @time @testset "debug endpoint cpu profile" begin
+        t, shouldstop = workload()
         headers = ["Content-Type" => "application/json"]
         payload = JSON3.write(Dict("profile_type" => "cpu_profile"))
         req = HTTP.post("$url/debug_engine", headers, payload)
@@ -88,11 +85,13 @@ end
         fname = read(IOBuffer(req.body), String)
         @info "filename: $fname"
         @test isfile(fname)
-        done[] = true
+        @info "Finished `debug profile` tests, waiting for peakflops workload to finish."
+        shouldstop[] = true
+        wait(t)  # handle errors
     end
 
-    @testset "debug endpoint cpu profile start/end" begin
-        t, done = workload()
+    @time @testset "debug endpoint cpu profile start/end" begin
+        t, shouldstop = workload()
         # JSON payload should contain profile_type
         headers = ["Content-Type" => "application/json"]
         payload = JSON3.write(Dict("profile_type" => "cpu_profile_start"))
@@ -110,7 +109,7 @@ end
         @test isfile(fname)
 
         @info "Finished `debug profile_start/stop` tests, waiting for peakflops workload to finish."
-        done[] = true
+        shouldstop[] = true
         wait(t)  # handle errors
 
         # We retrive data via PProf directly if `pprof=true`; make sure that path's tested.
@@ -126,7 +125,50 @@ end
         @test isfile(fname)
     end
 
-    @testset "Debug endpoint task backtraces" begin
+    @time @testset "Debug endpoint heap snapshot" begin
+        @static if isdefined(Profile, :take_heap_snapshot)
+            headers = ["Content-Type" => "application/json"]
+            payload = JSON3.write(Dict("profile_type" => "heap_snapshot"))
+            req = HTTP.post("$url/debug_engine", headers, payload)
+            @test req.status == 200
+            fname = read(IOBuffer(req.body), String)
+            @info "filename: $fname"
+            @test isfile(fname)
+        end
+    end
+
+    @time @testset "Debug endpoint allocation profile" begin
+        @static if isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs)
+            headers = ["Content-Type" => "application/json"]
+            payload = JSON3.write(Dict("profile_type" => "allocs_profile"))
+            req = HTTP.post("$url/debug_engine", headers, payload)
+            @test req.status == 200
+            fname = read(IOBuffer(req.body), String)
+            @info "filename: $fname"
+            @test isfile(fname)
+        end
+    end
+
+    @time @testset "Debug endpoint allocation profile start/stop" begin
+        @static if isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs)
+            headers = ["Content-Type" => "application/json"]
+            payload = JSON3.write(Dict("profile_type" => "allocs_profile_start"))
+            req = HTTP.post("$url/debug_engine", headers, payload)
+            @test req.status == 200
+            @test String(req.body) == "Allocation profiling started."
+
+            sleep(3)  # Allow workload to run a while before we stop profiling.
+
+            payload = JSON3.write(Dict("profile_type" => "allocs_profile_stop"))
+            req = HTTP.post("$url/debug_engine", headers, payload)
+            @test req.status == 200
+            fname = read(IOBuffer(req.body), String)
+            @info "filename: $fname"
+            @test isfile(fname)
+        end
+    end
+
+    @time @testset "Debug endpoint task backtraces" begin
         @static if VERSION >= v"1.10.0-DEV.0"
             headers = ["Content-Type" => "application/json"]
             payload = JSON3.write(Dict("profile_type" => "task_backtraces"))
@@ -135,6 +177,22 @@ end
             fname = read(IOBuffer(req.body), String)
             @info "filename: $fname"
             @test isfile(fname)
+        end
+    end
+
+    @time @testset "Debug endpoint task backtraces with subdir" begin
+        @static if VERSION >= v"1.10.0-DEV.0"
+            headers = ["Content-Type" => "application/json"]
+            payload = JSON3.write(Dict("profile_type" => "task_backtraces"))
+            if !isdir(joinpath(stage_path, "foo"))
+                mkdir(joinpath(stage_path, "foo"))
+            end
+            req = HTTP.post("$url/debug_engine?subdir=foo", headers, payload)
+            @test req.status == 200
+            fname = read(IOBuffer(req.body), String)
+            @info "filename: $fname"
+            @test isfile(fname)
+            @test occursin("foo", fname)
         end
     end
 end
@@ -159,7 +217,7 @@ end
 
 @testitem "Allocation profiling" setup=[TestSetup] begin
     @testset "allocs_profile endpoint" begin
-        t, done = workload()
+        t, shouldstop = workload()
         req = HTTP.get("$url/allocs_profile?duration=3", retry=false, status_exception=false)
         if !(isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs))
             @assert VERSION < v"1.8.0-DEV.1346"
@@ -174,12 +232,12 @@ end
             @test length(data) > 100
         end
         @info "Finished `allocs_profile` tests, waiting for workload to finish."
-        done[] = true
+        shouldstop[] = true
         wait(t)  # handle errors
     end
 
     @testset "allocs_profile_start/stop endpoints" begin
-        t, done = workload()
+        t, shouldstop = workload()
         req = HTTP.get("$url/allocs_profile_start", retry=false, status_exception=false)
         if !(isdefined(Profile, :Allocs) && isdefined(PProf, :Allocs))
             @assert VERSION < v"1.8.0-DEV.1346"
@@ -203,7 +261,7 @@ end
             @test length(data) > 100
         end
         @info "Finished `allocs_profile_stop` tests, waiting for workload to finish."
-        done[] = true
+        shouldstop[] = true
         wait(t)  # handle errors
     end
 end
