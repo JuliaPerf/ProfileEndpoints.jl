@@ -205,12 +205,27 @@ function handle_heap_snapshot(all_one, stage_path = nothing)
     else
         file_path = joinpath(stage_path, "$(getpid())_$(time_ns()).heapsnapshot")
     end
-    @info "Taking heap snapshot from ProfileEndpoints" all_one file_path
-    file_path = Profile.take_heap_snapshot(file_path, all_one)
-    if stage_path === nothing
-        return _http_create_response_with_profile_inlined(read(file_path))
+    @info "Taking heap snapshot from ProfileEndpoints" all_one
+    local output_file
+    @static if isdefined(Profile, :HeapSnapshot) && isdefined(Profile.HeapSnapshot, :assemble_snapshot) && Sys.isunix()
+        Profile.take_heap_snapshot(file_path, all_one; streaming=true)
+        # Streaming version of `take_heap_snapshot` returns a bunch of files
+        # that need to be later assembled...
+        nodes_file = "$file_path.nodes"
+        edges_file = "$file_path.edges"
+        strings_file = "$file_path.strings"
+        metadata_json_file = "$file_path.metadata.json"
+        # Tar all of the files together
+        output_file = "$file_path.tar"
+        run(`tar -cf $output_file $nodes_file $edges_file $strings_file $metadata_json_file`)
     else
-        return _http_create_response_with_profile_as_file(file_path)
+        Profile.take_heap_snapshot(file_path, all_one)
+        output_file = file_path
+    end
+    if stage_path === nothing
+        return _http_create_response_with_profile_inlined(read(output_file))
+    else
+        return _http_create_response_with_profile_as_file(output_file)
     end
 end
 
