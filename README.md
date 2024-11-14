@@ -8,12 +8,12 @@ Julia process to interrogate its performance characteristics.
 
 **CPU Profile**
 
-- `/profile` endpoint to record a CPU profile for a given duration using `Profile.@profile`.
-    - Default query params: `/profile?n=1e8&delay=0.01&duration=10&pprof=true`
-- `/profile_start` to start the CPU profiler (without specifying a duration to run for).
-    - Default query params: `/profile_start?n=1e8&delay=0.01`
-- `/profile_stop` to stop the CPU profiler and return the profile.
-    - Default query params: `/profile_stop?pprof=true`
+- `/cpu_profile` endpoint to record a CPU profile for a given duration using `Profile.@profile`.
+    - Default query params: `/cpu_profile?n=1e8&delay=0.01&duration=10&pprof=true`
+- `/cpu_profile_start` to start the CPU profiler (without specifying a duration to run for).
+    - Default query params: `/cpu_profile_start?n=1e8&delay=0.01`
+- `/cpu_profile_stop` to stop the CPU profiler and return the profile.
+    - Default query params: `/cpu_profile_stop?pprof=true`
 
 **Allocation Profile**
 
@@ -51,7 +51,7 @@ julia> for _ in 1:100 peakflops() end  # run stuff to profile (locks up the REPL
 
 Collect a CPU profile:
 ```bash
-$ curl '127.0.0.1:16825/profile?delay=0.01&duration=3' --output prof1.pb.gz
+$ curl '127.0.0.1:16825/cpu_profile?delay=0.01&duration=3' --output prof1.pb.gz
 ```
 
 And view it in PProf:
