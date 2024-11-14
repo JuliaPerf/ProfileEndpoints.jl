@@ -10,7 +10,7 @@ using Serialization: serialize
 #----------------------------------------------------------
 #  Description
 #
-# It would be nice if visiting the `/profile` page from a web browser gives you a form where you can:
+# It would be nice if visiting the `/cpu_profile` page from a web browser gives you a form where you can:
 # - configure the Profiling parameters:
 #    - Set julia Profile configuration, either by:
 #       - Manually setting `n` and `delay`, for `Profile.init(n, delay)`, or
@@ -452,9 +452,9 @@ end
 
 function register_endpoints(router; stage_path = nothing)
     @info "Registering profiling endpoints"
-    HTTP.register!(router, "/profile", cpu_profile_endpoint)
-    HTTP.register!(router, "/profile_start", cpu_profile_start_endpoint)
-    HTTP.register!(router, "/profile_stop", cpu_profile_stop_endpoint)
+    HTTP.register!(router, "/cpu_profile", cpu_profile_endpoint)
+    HTTP.register!(router, "/cpu_profile_start", cpu_profile_start_endpoint)
+    HTTP.register!(router, "/cpu_profile_stop", cpu_profile_stop_endpoint)
     HTTP.register!(router, "/heap_snapshot", heap_snapshot_endpoint)
     HTTP.register!(router, "/allocs_profile", allocations_profile_endpoint)
     HTTP.register!(router, "/allocs_profile_start", allocations_start_endpoint)
@@ -473,7 +473,7 @@ function serve_profiling_server(;addr="127.0.0.1", port=16825, verbose=false, st
     return HTTP.serve!(router, addr, port; verbose=verbose, kw...)
 end
 
-# Precompile the endpoints as much as possible, so that your /profile attempt doesn't end
+# Precompile the endpoints as much as possible, so that your /cpu_profile attempt doesn't end
 # up profiling compilation!
 @static if VERSION < v"1.9" # Before Julia 1.9, precompilation didn't stick if not in __init__
     function __init__()

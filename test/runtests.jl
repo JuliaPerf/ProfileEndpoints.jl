@@ -31,7 +31,7 @@ const url = "http://127.0.0.1:$port"
         @testset "profile endpoint" begin
             done[] = false
             t = workload()
-            req = HTTP.get("$url/profile?duration=3&pprof=false")
+            req = HTTP.get("$url/cpu_profile?duration=3&pprof=false")
             @test req.status == 200
             @test length(req.body) > 0
 
@@ -48,13 +48,13 @@ const url = "http://127.0.0.1:$port"
         @testset "profile_start/stop endpoints" begin
             done[] = false
             t = workload()
-            req = HTTP.get("$url/profile_start")
+            req = HTTP.get("$url/cpu_profile_start")
             @test req.status == 200
             @test String(req.body) == "CPU profiling started."
 
             sleep(3)  # Allow workload to run a while before we stop profiling.
 
-            req = HTTP.get("$url/profile_stop?pprof=false")
+            req = HTTP.get("$url/cpu_profile_stop?pprof=false")
             @test req.status == 200
             data, lidict = deserialize(IOBuffer(req.body))
             # Test that the profile seems like valid profile data
@@ -68,7 +68,7 @@ const url = "http://127.0.0.1:$port"
             # We retrive data via PProf directly if `pprof=true`; make sure that path's tested.
             # This second call to `profile_stop` should still return the profile, even though
             # the profiler is already stopped, as it's `profile_start` that calls `clear()`.
-            req = HTTP.get("$url/profile_stop?pprof=true")
+            req = HTTP.get("$url/cpu_profile_stop?pprof=true")
             @test req.status == 200
             # Test that there's something here
             # TODO: actually parse the profile
@@ -294,7 +294,7 @@ const url = "http://127.0.0.1:$port"
     end
 
     @testset "error handling" begin
-        let res = HTTP.get("$url/profile", status_exception=false)
+        let res = HTTP.get("$url/cpu_profile", status_exception=false)
             @test 400 <= res.status < 500
             @test res.status != 404
             # Make sure we describe how to use the endpoint
