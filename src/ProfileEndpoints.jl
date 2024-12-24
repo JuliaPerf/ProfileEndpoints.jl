@@ -133,7 +133,11 @@ function _do_profile(type::TaskProfileType, n, delay, duration, with_pprof, stag
     if type == CPU_PROFILE
         Profile.@profile sleep(duration)
     elseif type == WALL_PROFILE
-        Profile.@profile_walltime sleep(duration)
+        @static if isdefined(Profile, Symbol("@profile_walltime"))
+            Profile.@profile_walltime sleep(duration)
+        else
+            return HTTP.Response(501, "You must use a build of Julia (1.12+) that supports walltime profiles.")
+        end
     end
     if stage_path === nothing
         # Defer the potentially expensive profile symbolication to a non-interactive thread
@@ -153,7 +157,11 @@ function handle_profile_start(type, n, delay)
     if type == CPU_PROFILE
         Profile.start_timer()
     elseif type == WALL_PROFILE
-        Profile.start_timer(true)
+        @static if isdefined(Profile, Symbol("@profile_walltime"))
+            Profile.start_timer(true)
+        else
+            return HTTP.Response(501, "You must use a build of Julia (1.12+) that supports walltime profiles.")
+        end
     end
     return resp
 end
@@ -219,7 +227,7 @@ function handle_heap_snapshot(all_one, stage_path = nothing)
     return HTTP.Response(501, "You must use a build of Julia (1.9+) that supports heap snapshots.")
 end
 
-else
+else  # isdefined
 
 function heap_snapshot_endpoint(req::HTTP.Request)
     uri = HTTP.URI(req.target)
