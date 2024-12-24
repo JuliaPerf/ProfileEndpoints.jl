@@ -171,7 +171,7 @@ const url = "http://127.0.0.1:$port"
             payload = JSON3.write(Dict("profile_type" => "cpu_profile_start"))
             req = HTTP.post("$url/debug_engine", headers, payload)
             @test req.status == 200
-            @test String(req.body) == "CPU_PROFILING profiling started."
+            @test String(req.body) == "CPU_PROFILE profiling started."
 
             sleep(3)  # Allow workload to run a while before we stop profiling.
 
@@ -219,7 +219,7 @@ const url = "http://127.0.0.1:$port"
             payload = JSON3.write(Dict("profile_type" => "wall_profile_start"))
             req = HTTP.post("$url/debug_engine", headers, payload)
             @test req.status == 200
-            @test String(req.body) == "WALL_PROFILING profiling started."
+            @test String(req.body) == "WALL_PROFILE profiling started."
 
             sleep(3)  # Allow workload to run a while before we stop profiling.
 
