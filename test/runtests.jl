@@ -28,13 +28,11 @@ end
         done = Threads.Atomic{Bool}(false)
         # Schedule some work that's known to be expensive, to profile it
         workload() = @async begin
-            out = 0
             for _ in 1:1000
                 if done[] return end
-                out += sum(Int[1 for _ in 1:Int(1e9)])
+                InteractiveUtils.peakflops()
                 yield()  # yield to allow the tests to run
             end
-            return out
         end
 
         @testset "profile endpoint" begin
@@ -151,14 +149,12 @@ end
         done = Threads.Atomic{Bool}(false)
         # Schedule some work that's known to be expensive, to profile it
         workload() = @async begin
-            out = 0
-            for _ in 1:10000
+            for _ in 1:1000
                 if done[] return end
-                out += sum(Int[1 for _ in 1:Int(1e5)])
+                InteractiveUtils.peakflops()
                 sleep(0.1)
                 yield()  # yield to allow the tests to run
             end
-            return out
         end
 
         @testset "debug endpoint cpu profile" begin
