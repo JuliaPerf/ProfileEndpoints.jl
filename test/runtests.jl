@@ -247,7 +247,6 @@ const url = "http://127.0.0.1:$port"
             @test isfile(fname)
         end
 
-
         @testset "Debug endpoint heap snapshot" begin
             @static if isdefined(Profile, :take_heap_snapshot)
                 headers = ["Content-Type" => "application/json"]
@@ -257,6 +256,10 @@ const url = "http://127.0.0.1:$port"
                 fname = read(IOBuffer(req.body), String)
                 @info "filename: $fname"
                 @test isfile(fname)
+                @static if isdefined(Profile, :HeapSnapshot) && isdefined(Profile.HeapSnapshot, :assemble_snapshot) && Sys.isunix()
+                    # test whether the returned file has a tar extension
+                    @test occursin(".tar", fname)
+                end
             end
         end
 
@@ -267,10 +270,6 @@ const url = "http://127.0.0.1:$port"
                 req = HTTP.post("$url/debug_engine", headers, payload)
                 @test req.status == 200
                 fname = read(IOBuffer(req.body), String)
-                @static if isdefined(Profile, :HeapSnapshot) && isdefined(Profile.HeapSnapshot, :assemble_snapshot) && Sys.isunix()
-                    # test whether the returned file has a tar extension
-                    @test occursin(".tar", fname)
-                end
                 @info "filename: $fname"
                 @test isfile(fname)
             end
