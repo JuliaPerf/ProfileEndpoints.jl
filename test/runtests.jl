@@ -10,13 +10,20 @@ import JSON3
 import Profile
 import PProf
 
-const port = 13423
 const stage_path = tempdir()
-const server = ProfileEndpoints.serve_profiling_server(;port=port, stage_path=stage_path)
-const url = "http://127.0.0.1:$port"
+port = 13423
+# Try a few ports to allow multiple test jobs in parallel on the same machine.
+for _ in 1:5
+    try
+        global server = ProfileEndpoints.serve_profiling_server(;port=port, stage_path=stage_path)
+        global url = "http://127.0.0.1:$port"
+        break
+    catch
+        global port += 1
+    end
+end
 
 @testset "ProfileEndpoints.jl" begin
-
     @testset "CPU profiling" begin
         done = Threads.Atomic{Bool}(false)
         # Schedule some work that's known to be expensive, to profile it
@@ -31,7 +38,8 @@ const url = "http://127.0.0.1:$port"
         @testset "profile endpoint" begin
             done[] = false
             t = workload()
-            req = HTTP.get("$url/profile?duration=3&pprof=false")
+            req = HTTP.get("$url/profile?duration=1&pprof=false")
+            done[] = true
             @test req.status == 200
             @test length(req.body) > 0
 
@@ -41,7 +49,6 @@ const url = "http://127.0.0.1:$port"
             @test lidict isa Dict{UInt64, Vector{Base.StackTraces.StackFrame}}
 
             @info "Finished `profile` tests, waiting for peakflops workload to finish."
-            done[] = true
             wait(t)  # handle errors
         end
 
@@ -50,11 +57,12 @@ const url = "http://127.0.0.1:$port"
             t = workload()
             req = HTTP.get("$url/profile_start")
             @test req.status == 200
-            @test String(req.body) == "CPU profiling started."
+            @test String(req.body) == "CPU_PROFILE profiling started."
 
             sleep(3)  # Allow workload to run a while before we stop profiling.
 
             req = HTTP.get("$url/profile_stop?pprof=false")
+            done[] = true
             @test req.status == 200
             data, lidict = deserialize(IOBuffer(req.body))
             # Test that the profile seems like valid profile data
@@ -62,7 +70,6 @@ const url = "http://127.0.0.1:$port"
             @test lidict isa Dict{UInt64, Vector{Base.StackTraces.StackFrame}}
 
             @info "Finished `profile_start/stop` tests, waiting for peakflops workload to finish."
-            done[] = true
             wait(t)  # handle errors
 
             # We retrive data via PProf directly if `pprof=true`; make sure that path's tested.
@@ -74,6 +81,80 @@ const url = "http://127.0.0.1:$port"
             # TODO: actually parse the profile
             data = read(IOBuffer(req.body), String)
             @test length(data) > 100
+        end
+    end
+
+    @static if isdefined(Profile, Symbol("@profile_walltime"))
+        @testset "Wall profiling" begin
+            done = Threads.Atomic{Bool}(false)
+            # Schedule some work that's known to be expensive, to profile it
+            workload() = @async begin
+                for _ in 1:100
+                    if done[] return end
+                    sleep(1)
+                    yield()  # yield to allow the tests to run
+                end
+            end
+
+            @testset "profile endpoint" begin
+                done[] = false
+                t = workload()
+                req = HTTP.get("$url/profile_wall?duration=3&pprof=false")
+                @test req.status == 200
+                @test length(req.body) > 0
+
+                data, lidict = deserialize(IOBuffer(req.body))
+                # Test that the profile seems like valid profile data
+                @test data isa Vector{UInt64}
+                @test lidict isa Dict{UInt64, Vector{Base.StackTraces.StackFrame}}
+
+                @info "Finished `profile` tests, waiting for peakflops workload to finish."
+                done[] = true
+                wait(t)  # handle errors
+            end
+
+            @testset "profile_start/stop endpoints" begin
+                done[] = false
+                t = workload()
+                req = HTTP.get("$url/profile_wall_start")
+                @test req.status == 200
+                @test String(req.body) == "WALL_PROFILE profiling started."
+
+                sleep(3)  # Allow workload to run a while before we stop profiling.
+
+                req = HTTP.get("$url/profile_stop?pprof=false")
+                @test req.status == 200
+                data, lidict = deserialize(IOBuffer(req.body))
+                # Test that the profile seems like valid profile data
+                @test data isa Vector{UInt64}
+                @test lidict isa Dict{UInt64, Vector{Base.StackTraces.StackFrame}}
+
+                @info "Finished `profile_start/stop` tests, waiting for peakflops workload to finish."
+                done[] = true
+                wait(t)  # handle errors
+
+                # We retrive data via PProf directly if `pprof=true`; make sure that path's tested.
+                # This second call to `profile_stop` should still return the profile, even though
+                # the profiler is already stopped, as it's `profile_start` that calls `clear()`.
+                req = HTTP.get("$url/profile_stop?pprof=true")
+                @test req.status == 200
+                # Test that there's something here
+                # TODO: actually parse the profile
+                data = read(IOBuffer(req.body), String)
+                @test length(data) > 100
+            end
+        end
+    end
+    @testset "debug endpoints" begin
+        done = Threads.Atomic{Bool}(false)
+        # Schedule some work that's known to be expensive, to profile it
+        workload() = @async begin
+            for _ in 1:1000
+                if done[] return end
+                InteractiveUtils.peakflops()
+                sleep(0.1)
+                yield()  # yield to allow the tests to run
+            end
         end
 
         @testset "debug endpoint cpu profile" begin
@@ -96,19 +177,19 @@ const url = "http://127.0.0.1:$port"
             payload = JSON3.write(Dict("profile_type" => "cpu_profile_start"))
             req = HTTP.post("$url/debug_engine", headers, payload)
             @test req.status == 200
-            @test String(req.body) == "CPU profiling started."
+            @test String(req.body) == "CPU_PROFILE profiling started."
 
             sleep(3)  # Allow workload to run a while before we stop profiling.
 
             payload = JSON3.write(Dict("profile_type" => "cpu_profile_stop"))
             req = HTTP.post("$url/debug_engine", headers, payload)
+            done[] = true
             @test req.status == 200
             fname = read(IOBuffer(req.body), String)
             @info "filename: $fname"
             @test isfile(fname)
 
             @info "Finished `debug profile_start/stop` tests, waiting for peakflops workload to finish."
-            done[] = true
             wait(t)  # handle errors
 
             # We retrive data via PProf directly if `pprof=true`; make sure that path's tested.
@@ -124,6 +205,55 @@ const url = "http://127.0.0.1:$port"
             @test isfile(fname)
         end
 
+        @static if isdefined(Profile, Symbol("@profile_walltime"))
+            @testset "debug endpoint wall profile" begin
+                done[] = false
+                t = workload()
+                headers = ["Content-Type" => "application/json"]
+                payload = JSON3.write(Dict("profile_type" => "wall_profile"))
+                req = HTTP.post("$url/debug_engine", headers, payload)
+                @test req.status == 200
+                fname = read(IOBuffer(req.body), String)
+                @info "filename: $fname"
+                @test isfile(fname)
+            end
+
+            @testset "debug endpoint wall profile start/end" begin
+                done[] = false
+                t = workload()
+                # JSON payload should contain profile_type
+                headers = ["Content-Type" => "application/json"]
+                payload = JSON3.write(Dict("profile_type" => "wall_profile_start"))
+                req = HTTP.post("$url/debug_engine", headers, payload)
+                @test req.status == 200
+                @test String(req.body) == "WALL_PROFILE profiling started."
+
+                sleep(3)  # Allow workload to run a while before we stop profiling.
+
+                payload = JSON3.write(Dict("profile_type" => "wall_profile_stop"))
+                req = HTTP.post("$url/debug_engine", headers, payload)
+                done[] = true
+                @test req.status == 200
+                fname = read(IOBuffer(req.body), String)
+                @info "filename: $fname"
+                @test isfile(fname)
+
+                @info "Finished `debug profile_start/stop` tests, waiting for peakflops workload to finish."
+                wait(t)  # handle errors
+
+                # We retrive data via PProf directly if `pprof=true`; make sure that path's tested.
+                # This second call to `profile_stop` should still return the profile, even though
+                # the profiler is already stopped, as it's `profile_start` that calls `clear()`.
+                payload = JSON3.write(Dict("profile_type" => "cpu_profile_stop", "pprof" => "true"))
+                req = HTTP.post("$url/debug_engine", headers, payload)
+                @test req.status == 200
+                # Test that there's something here
+                # TODO: actually parse the profile
+                fname = read(IOBuffer(req.body), String)
+                @info "filename: $fname"
+                @test isfile(fname)
+            end
+        end
         @testset "Debug endpoint heap snapshot" begin
             @static if isdefined(Profile, :take_heap_snapshot)
                 headers = ["Content-Type" => "application/json"]
@@ -133,6 +263,10 @@ const url = "http://127.0.0.1:$port"
                 fname = read(IOBuffer(req.body), String)
                 @info "filename: $fname"
                 @test isfile(fname)
+                @static if isdefined(Profile, :HeapSnapshot) && isdefined(Profile.HeapSnapshot, :assemble_snapshot) && Sys.isunix()
+                    # test whether the returned file has a tar extension
+                    @test occursin(".tar", fname)
+                end
             end
         end
 
@@ -143,10 +277,6 @@ const url = "http://127.0.0.1:$port"
                 req = HTTP.post("$url/debug_engine", headers, payload)
                 @test req.status == 200
                 fname = read(IOBuffer(req.body), String)
-                @static if isdefined(Profile, :HeapSnapshot) && isdefined(Profile.HeapSnapshot, :assemble_snapshot) && Sys.isunix()
-                    # test whether the returned file has a tar extension
-                    @test occursin(".tar", fname)
-                end
                 @info "filename: $fname"
                 @test isfile(fname)
             end
