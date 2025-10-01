@@ -4,6 +4,7 @@ import HTTP
 import JSON3
 import Profile
 import PProf
+import CodecZlib: GzipCompressorStream
 
 using Serialization: serialize
 
@@ -197,10 +198,17 @@ end
 
 function _profile_get_response(;with_pprof::Bool)
     if with_pprof
-        prof_name = tempname(;cleanup=false)
-        PProf.pprof(out=prof_name, web=false)
-        prof_name = "$prof_name.pb.gz"
-        return _http_create_response_with_profile_inlined(read(prof_name))
+        io = IOBuffer()
+
+        gzip_io = GzipCompressorStream(io)
+        PProf.pprof(gzip_io)
+        write(gzip_io, CodecZlib.TranscodingStreams.TOKEN_END)
+        flush(gzip_io)
+
+        return HTTP.Response(200, [
+            "Content-Type" => "application/octet-stream",
+            "Content-Enconding" => "gzip",
+        ], body = take!(io))
     else
         iobuf = IOBuffer()
         data = Profile.retrieve()
